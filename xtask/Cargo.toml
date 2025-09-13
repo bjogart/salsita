@@ -1,0 +1,12 @@
+[package]
+edition.workspace = true
+name = "xtask"
+version = "0.0.0"
+
+[dependencies]
+anyhow.workspace = true
+xflags.workspace = true
+xshell.workspace = true
+
+[lints]
+workspace = true
