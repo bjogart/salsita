@@ -4,7 +4,7 @@ use salsita::Db;
 use salsita::Query;
 use salsita::Sig;
 
-// TODO remove main.rs once debugging is no longer necessary
+// TODO move to tests and remove main.rs once debugging is no longer necessary
 fn main() {
     static EVALS: AtomicUsize = AtomicUsize::new(0);
 
@@ -81,19 +81,22 @@ fn main() {
     }
 
     let db = Db::default();
-    assert_eq!(EVALS.load(Ordering::SeqCst), 0);
+    assert_eq!(EVALS.load(Ordering::Acquire), 0);
     let burrito_price = db.query::<BurritoPrice>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), burrito_price), (1, 8));
+    assert_eq!((EVALS.load(Ordering::Acquire), burrito_price), (1, 8));
     let price_with_shipping = db.query::<BurritoPriceWithShipping>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), price_with_shipping), (3, 10));
+    assert_eq!(
+        (EVALS.load(Ordering::Acquire), price_with_shipping),
+        (2, 10)
+    );
     let num_burritos = db.query::<NumBurritos>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), num_burritos), (4, 3));
+    assert_eq!((EVALS.load(Ordering::Acquire), num_burritos), (3, 3));
     let total_price = db.query::<TotalPrice>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), total_price), (8, 30));
+    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (4, 30));
     let salsa_per_burrito = db.query::<SalsaPerBurrito>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), salsa_per_burrito), (9, 40));
+    assert_eq!((EVALS.load(Ordering::Acquire), salsa_per_burrito), (5, 40));
     let salsa_in_order = db.query::<SalsaInOrder>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), salsa_in_order), (12, 120));
+    assert_eq!((EVALS.load(Ordering::Acquire), salsa_in_order), (6, 120));
     let total_price = db.query::<TotalPrice>(());
-    assert_eq!((EVALS.load(Ordering::SeqCst), total_price), (16, 30));
+    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (6, 30));
 }
