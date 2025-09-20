@@ -6,7 +6,13 @@ use std::collections::hash_map::Entry;
 
 #[derive(Default)]
 pub struct Db {
-    registry: RefCell<HashMap<TypeId, fn(&Db, &dyn Any) -> Box<dyn Any>>>,
+    registry: RefCell<HashMap<TypeId, EvalId>>,
+    evals: RefCell<Vec<fn(&Db, &dyn Any) -> Box<dyn Any>>>,
+}
+
+#[derive(Clone, Copy)]
+struct EvalId {
+    idx: usize,
 }
 
 pub trait Query: Sig {
@@ -24,10 +30,18 @@ impl Db {
         Q: Query,
         Q::Output: Clone,
     {
-        let eval = match self.registry.borrow_mut().entry(TypeId::of::<Q>()) {
-            Entry::Vacant(entry) => *entry.insert(eval::<Q>),
-            Entry::Occupied(entry) => *entry.get(),
+        let eval_id = {
+            match self.registry.borrow_mut().entry(TypeId::of::<Q>()) {
+                Entry::Vacant(entry) => {
+                    let mut evals = self.evals.borrow_mut();
+                    let id = EvalId { idx: evals.len() };
+                    evals.push(eval::<Q>);
+                    *entry.insert(id)
+                }
+                Entry::Occupied(entry) => *entry.get(),
+            }
         };
+        let eval = *self.evals.borrow().get(eval_id.idx).unwrap();
         let value = eval(self, &args);
         return value.downcast_ref::<Q::Output>().unwrap().clone();
 
