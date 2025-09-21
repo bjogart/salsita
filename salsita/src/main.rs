@@ -1,6 +1,8 @@
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use salsita::Db;
+use salsita::Input;
+use salsita::InputId;
 use salsita::Query;
 use salsita::Sig;
 
@@ -9,94 +11,73 @@ fn main() {
     static EVALS: AtomicUsize = AtomicUsize::new(0);
 
     struct BurritoPrice;
-    impl Sig for BurritoPrice {
-        type Args = ();
-        type Output = usize;
-    }
-    impl Query for BurritoPrice {
-        fn eval(_: &Db, (): &Self::Args) -> Self::Output {
-            EVALS.fetch_add(1, Ordering::AcqRel);
-            8
-        }
+    impl Input for BurritoPrice {
+        type Value = usize;
     }
 
     struct BurritoPriceWithShipping;
     impl Sig for BurritoPriceWithShipping {
-        type Args = ();
+        type Args = InputId<BurritoPrice>;
         type Output = usize;
     }
     impl Query for BurritoPriceWithShipping {
-        fn eval(db: &Db, (): &Self::Args) -> Self::Output {
+        fn eval(db: &Db, burrito_price: &Self::Args) -> Self::Output {
             EVALS.fetch_add(1, Ordering::AcqRel);
-            db.query::<BurritoPrice>(&()) + 2
+            db.query::<BurritoPrice>(burrito_price) + 2
         }
     }
 
     struct NumBurritos;
-    impl Sig for NumBurritos {
-        type Args = ();
-        type Output = usize;
-    }
-    impl Query for NumBurritos {
-        fn eval(_: &Db, (): &Self::Args) -> Self::Output {
-            EVALS.fetch_add(1, Ordering::AcqRel);
-            3
-        }
+    impl Input for NumBurritos {
+        type Value = usize;
     }
 
     struct TotalPrice;
     impl Sig for TotalPrice {
-        type Args = ();
+        type Args = (InputId<BurritoPrice>, InputId<NumBurritos>);
         type Output = usize;
     }
     impl Query for TotalPrice {
-        fn eval(db: &Db, (): &Self::Args) -> Self::Output {
+        fn eval(db: &Db, args: &Self::Args) -> Self::Output {
             EVALS.fetch_add(1, Ordering::AcqRel);
-            db.query::<BurritoPriceWithShipping>(&()) * db.query::<NumBurritos>(&())
+            let (burrito_price, num_burritos) = args;
+            db.query::<BurritoPriceWithShipping>(burrito_price)
+                * db.query::<NumBurritos>(num_burritos)
         }
     }
 
     struct SalsaPerBurrito;
-    impl Sig for SalsaPerBurrito {
-        type Args = ();
-        type Output = usize;
-    }
-    impl Query for SalsaPerBurrito {
-        fn eval(_: &Db, (): &Self::Args) -> Self::Output {
-            EVALS.fetch_add(1, Ordering::AcqRel);
-            40
-        }
+    impl Input for SalsaPerBurrito {
+        type Value = usize;
     }
 
     struct SalsaInOrder;
     impl Sig for SalsaInOrder {
-        type Args = ();
+        type Args = (InputId<SalsaPerBurrito>, InputId<NumBurritos>);
         type Output = usize;
     }
     impl Query for SalsaInOrder {
-        fn eval(db: &Db, (): &Self::Args) -> Self::Output {
+        fn eval(db: &Db, args: &Self::Args) -> Self::Output {
             EVALS.fetch_add(1, Ordering::AcqRel);
-            db.query::<NumBurritos>(&()) * db.query::<SalsaPerBurrito>(&())
+            let (salsa_per_burrito, num_burritos) = args;
+            db.query::<NumBurritos>(num_burritos) * db.query::<SalsaPerBurrito>(salsa_per_burrito)
         }
     }
 
-    let db = Db::default();
+    let mut db = Db::default();
     assert_eq!(EVALS.load(Ordering::Acquire), 0);
-    let burrito_price = db.query::<BurritoPrice>(&());
-    assert_eq!((EVALS.load(Ordering::Acquire), burrito_price), (1, 8));
-    let price_with_shipping = db.query::<BurritoPriceWithShipping>(&());
+    let burrito_price = db.new_input::<BurritoPrice>(8);
+    let price_with_shipping = db.query::<BurritoPriceWithShipping>(&burrito_price);
     assert_eq!(
         (EVALS.load(Ordering::Acquire), price_with_shipping),
-        (2, 10)
+        (1, 10)
     );
-    let num_burritos = db.query::<NumBurritos>(&());
-    assert_eq!((EVALS.load(Ordering::Acquire), num_burritos), (3, 3));
-    let total_price = db.query::<TotalPrice>(&());
-    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (4, 30));
-    let salsa_per_burrito = db.query::<SalsaPerBurrito>(&());
-    assert_eq!((EVALS.load(Ordering::Acquire), salsa_per_burrito), (5, 40));
-    let salsa_in_order = db.query::<SalsaInOrder>(&());
-    assert_eq!((EVALS.load(Ordering::Acquire), salsa_in_order), (6, 120));
-    let total_price = db.query::<TotalPrice>(&());
-    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (6, 30));
+    let num_burritos = db.new_input::<NumBurritos>(3);
+    let total_price = db.query::<TotalPrice>(&(burrito_price, num_burritos));
+    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (2, 30));
+    let salsa_per_burrito = db.new_input::<SalsaPerBurrito>(40);
+    let salsa_in_order = db.query::<SalsaInOrder>(&(salsa_per_burrito, num_burritos));
+    assert_eq!((EVALS.load(Ordering::Acquire), salsa_in_order), (3, 120));
+    let total_price = db.query::<TotalPrice>(&(burrito_price, num_burritos));
+    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (3, 30));
 }

@@ -3,10 +3,13 @@ use core::any::TypeId;
 use core::cell::Ref;
 use core::cell::RefCell;
 use core::cell::RefMut;
+use core::cmp;
+use core::fmt;
+use core::hash;
+use core::hash::Hash;
 use core::marker::PhantomData;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
-use std::hash::Hash;
 
 #[cfg(test)]
 mod tests;
@@ -47,25 +50,21 @@ pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Output;
 }
 
-pub trait Input: Sig<Args = InputId<<Self as Sig>::Output>> {}
+pub trait Input: 'static {
+    type Value;
+}
 
-pub struct InputId<T> {
+pub struct InputId<I>
+where
+    I: Input,
+{
     idx: usize,
-    marker: PhantomData<T>,
+    marker: PhantomData<I>,
 }
 
 pub trait Sig: 'static {
     type Args;
     type Output;
-}
-
-impl<I> Query for I
-where
-    I: Input,
-{
-    fn eval(_: &Db, _: &Self::Args) -> Self::Output {
-        unimplemented!("input values should be set, not computed")
-    }
 }
 
 impl Db {
@@ -75,16 +74,21 @@ impl Db {
         Q::Args: Clone + Eq + Hash,
         Q::Output: Clone,
     {
-        let id = self.query_id::<Q>();
+        let id = self.get_or_assign_id::<Q>();
         self.ensure_memoized::<Q>(id, &args);
         self.memoized::<Q>(id, &args)
     }
 
-    pub fn new_input_id<I>(&mut self) -> InputId<I>
+    pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
     where
         I: Input,
     {
-        todo!()
+        let query_id = self.get_or_assign_id::<I>();
+        let mut query = self.queries.query_mut(query_id);
+        let memos = query.memos_mut::<I>();
+        let input_id = InputId::new(memos.len());
+        memos.insert(input_id, MemoEntry::Ready(value));
+        input_id
     }
 
     fn ensure_memoized<Q>(&self, id: QueryId, args: &Q::Args)
@@ -123,7 +127,7 @@ impl Db {
         }
     }
 
-    fn query_id<S>(&self) -> QueryId
+    fn get_or_assign_id<S>(&self) -> QueryId
     where
         S: Sig,
     {
@@ -178,5 +182,99 @@ impl QueryData {
         S: Sig,
     {
         self.memos.downcast_mut().unwrap()
+    }
+}
+
+impl<I> Sig for I
+where
+    I: Input,
+{
+    type Args = InputId<Self>;
+    type Output = <Self as Input>::Value;
+}
+
+impl<I> Query for I
+where
+    I: Input,
+{
+    fn eval(_: &Db, _: &Self::Args) -> Self::Output {
+        unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
+    }
+}
+
+impl<I> InputId<I>
+where
+    I: Input,
+{
+    fn new(idx: usize) -> Self {
+        Self {
+            idx,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<I> Clone for InputId<I>
+where
+    I: Input,
+{
+    fn clone(&self) -> Self {
+        Self {
+            idx: self.idx.clone(),
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<I> Copy for InputId<I> where I: Input {}
+
+impl<I> PartialEq for InputId<I>
+where
+    I: Input,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx
+    }
+}
+
+impl<I> Eq for InputId<I> where I: Input {}
+
+impl<I> PartialOrd for InputId<I>
+where
+    I: Input,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        self.idx.partial_cmp(&other.idx)
+    }
+}
+
+impl<I> Ord for InputId<I>
+where
+    I: Input,
+{
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.idx.cmp(&other.idx)
+    }
+}
+
+impl<I> Hash for InputId<I>
+where
+    I: Input,
+{
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.idx.hash(state);
+        self.marker.hash(state);
+    }
+}
+
+impl<I> fmt::Debug for InputId<I>
+where
+    I: Input,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InputId")
+            .field("idx", &self.idx)
+            .field("marker", &self.marker)
+            .finish()
     }
 }
