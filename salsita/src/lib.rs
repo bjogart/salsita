@@ -3,6 +3,7 @@ use core::any::TypeId;
 use core::cell::Ref;
 use core::cell::RefCell;
 use core::cell::RefMut;
+use core::marker::PhantomData;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
@@ -46,9 +47,25 @@ pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Output;
 }
 
+pub trait Input: Sig<Args = InputId<<Self as Sig>::Output>> {}
+
+pub struct InputId<T> {
+    idx: usize,
+    marker: PhantomData<T>,
+}
+
 pub trait Sig: 'static {
     type Args;
     type Output;
+}
+
+impl<I> Query for I
+where
+    I: Input,
+{
+    fn eval(_: &Db, _: &Self::Args) -> Self::Output {
+        unimplemented!("input values should be set, not computed")
+    }
 }
 
 impl Db {
@@ -61,6 +78,13 @@ impl Db {
         let id = self.query_id::<Q>();
         self.ensure_memoized::<Q>(id, &args);
         self.memoized::<Q>(id, &args)
+    }
+
+    pub fn new_input_id<I>(&mut self) -> InputId<I>
+    where
+        I: Input,
+    {
+        todo!()
     }
 
     fn ensure_memoized<Q>(&self, id: QueryId, args: &Q::Args)
