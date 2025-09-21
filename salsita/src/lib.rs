@@ -49,7 +49,7 @@ pub trait Sig: 'static {
 }
 
 impl Db {
-    pub fn query<Q>(&self, args: Q::Args) -> Q::Output
+    pub fn query<Q>(&self, args: &Q::Args) -> Q::Output
     where
         Q: Query,
         Q::Args: Clone + Eq + Hash,
@@ -57,7 +57,7 @@ impl Db {
     {
         let id = self.query_id::<Q>();
         self.ensure_memoized::<Q>(id, &args);
-        self.memoized::<Q>(id, args)
+        self.memoized::<Q>(id, &args)
     }
 
     fn ensure_memoized<Q>(&self, id: QueryId, args: &Q::Args)
@@ -83,7 +83,7 @@ impl Db {
         }
     }
 
-    fn memoized<Q>(&self, id: QueryId, args: Q::Args) -> Q::Output
+    fn memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Output
     where
         Q: Query,
         Q::Args: Clone + Eq + Hash,
@@ -170,10 +170,10 @@ mod tests {
         }
         impl Query for Cycle {
             fn eval(db: &Db, (): &Self::Args) -> Self::Output {
-                db.query::<Self>(())
+                db.query::<Self>(&())
             }
         }
 
-        Db::default().query::<Cycle>(());
+        Db::default().query::<Cycle>(&());
     }
 }

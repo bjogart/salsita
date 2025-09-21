@@ -28,7 +28,7 @@ fn main() {
     impl Query for BurritoPriceWithShipping {
         fn eval(db: &Db, (): &Self::Args) -> Self::Output {
             EVALS.fetch_add(1, Ordering::AcqRel);
-            db.query::<BurritoPrice>(()) + 2
+            db.query::<BurritoPrice>(&()) + 2
         }
     }
 
@@ -52,7 +52,7 @@ fn main() {
     impl Query for TotalPrice {
         fn eval(db: &Db, (): &Self::Args) -> Self::Output {
             EVALS.fetch_add(1, Ordering::AcqRel);
-            db.query::<BurritoPriceWithShipping>(()) * db.query::<NumBurritos>(())
+            db.query::<BurritoPriceWithShipping>(&()) * db.query::<NumBurritos>(&())
         }
     }
 
@@ -76,27 +76,27 @@ fn main() {
     impl Query for SalsaInOrder {
         fn eval(db: &Db, (): &Self::Args) -> Self::Output {
             EVALS.fetch_add(1, Ordering::AcqRel);
-            db.query::<NumBurritos>(()) * db.query::<SalsaPerBurrito>(())
+            db.query::<NumBurritos>(&()) * db.query::<SalsaPerBurrito>(&())
         }
     }
 
     let db = Db::default();
     assert_eq!(EVALS.load(Ordering::Acquire), 0);
-    let burrito_price = db.query::<BurritoPrice>(());
+    let burrito_price = db.query::<BurritoPrice>(&());
     assert_eq!((EVALS.load(Ordering::Acquire), burrito_price), (1, 8));
-    let price_with_shipping = db.query::<BurritoPriceWithShipping>(());
+    let price_with_shipping = db.query::<BurritoPriceWithShipping>(&());
     assert_eq!(
         (EVALS.load(Ordering::Acquire), price_with_shipping),
         (2, 10)
     );
-    let num_burritos = db.query::<NumBurritos>(());
+    let num_burritos = db.query::<NumBurritos>(&());
     assert_eq!((EVALS.load(Ordering::Acquire), num_burritos), (3, 3));
-    let total_price = db.query::<TotalPrice>(());
+    let total_price = db.query::<TotalPrice>(&());
     assert_eq!((EVALS.load(Ordering::Acquire), total_price), (4, 30));
-    let salsa_per_burrito = db.query::<SalsaPerBurrito>(());
+    let salsa_per_burrito = db.query::<SalsaPerBurrito>(&());
     assert_eq!((EVALS.load(Ordering::Acquire), salsa_per_burrito), (5, 40));
-    let salsa_in_order = db.query::<SalsaInOrder>(());
+    let salsa_in_order = db.query::<SalsaInOrder>(&());
     assert_eq!((EVALS.load(Ordering::Acquire), salsa_in_order), (6, 120));
-    let total_price = db.query::<TotalPrice>(());
+    let total_price = db.query::<TotalPrice>(&());
     assert_eq!((EVALS.load(Ordering::Acquire), total_price), (6, 30));
 }
