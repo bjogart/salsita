@@ -25,11 +25,19 @@ struct QueryData {
     memos: Box<dyn Any>,
 }
 
+enum MemoEntry<S>
+where
+    S: Sig,
+{
+    InProgress,
+    Ready(S::Output),
+}
+
 #[allow(type_alias_bounds)]
 type Memos<S>
 where
     S: Sig,
-= HashMap<S::Args, S::Output>;
+= HashMap<S::Args, MemoEntry<S>>;
 
 pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Output;
@@ -57,12 +65,21 @@ impl Db {
         Q: Query,
         Q::Args: Clone + Eq + Hash,
     {
-        if !self.queries.query(id).memos::<Q>().contains_key(args) {
+        let is_memoized = match self.queries.query_mut(id).memos_mut::<Q>().get(args) {
+            Some(MemoEntry::InProgress) => panic!("cycle detected"),
+            Some(MemoEntry::Ready(_)) => true,
+            None => false,
+        };
+        if !is_memoized {
+            self.queries
+                .query_mut(id)
+                .memos_mut::<Q>()
+                .insert(args.clone(), MemoEntry::InProgress);
             let output = Q::eval(self, args);
             self.queries
                 .query_mut(id)
                 .memos_mut::<Q>()
-                .insert(args.clone(), output);
+                .insert(args.clone(), MemoEntry::Ready(output));
         }
     }
 
@@ -72,12 +89,11 @@ impl Db {
         Q::Args: Clone + Eq + Hash,
         Q::Output: Clone,
     {
-        self.queries
-            .query(id)
-            .memos::<Q>()
-            .get(&args)
-            .unwrap()
-            .clone()
+        match self.queries.query(id).memos::<Q>().get(&args) {
+            None => panic!("`Db::memoized` called but value is not memoized"),
+            Some(MemoEntry::InProgress) => unreachable!(),
+            Some(MemoEntry::Ready(output)) => output.clone(),
+        }
     }
 
     fn query_id<S>(&self) -> QueryId
@@ -135,5 +151,29 @@ impl QueryData {
         S: Sig,
     {
         self.memos.downcast_mut().unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Db;
+    use crate::Query;
+    use crate::Sig;
+
+    #[test]
+    #[should_panic]
+    fn cycles_panic() {
+        struct Cycle;
+        impl Sig for Cycle {
+            type Args = ();
+            type Output = ();
+        }
+        impl Query for Cycle {
+            fn eval(db: &Db, (): &Self::Args) -> Self::Output {
+                db.query::<Self>(())
+            }
+        }
+
+        Db::default().query::<Cycle>(());
     }
 }
