@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub struct Db {
     registry: RefCell<HashMap<TypeId, QueryId>>,
@@ -151,29 +154,5 @@ impl QueryData {
         S: Sig,
     {
         self.memos.downcast_mut().unwrap()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::Db;
-    use crate::Query;
-    use crate::Sig;
-
-    #[test]
-    #[should_panic]
-    fn cycles_panic() {
-        struct Cycle;
-        impl Sig for Cycle {
-            type Args = ();
-            type Output = ();
-        }
-        impl Query for Cycle {
-            fn eval(db: &Db, (): &Self::Args) -> Self::Output {
-                db.query::<Self>(&())
-            }
-        }
-
-        Db::default().query::<Cycle>(&());
     }
 }
