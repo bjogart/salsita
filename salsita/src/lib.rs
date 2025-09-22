@@ -9,7 +9,6 @@ use core::hash;
 use core::hash::Hash;
 use core::marker::PhantomData;
 use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 
 mod intern;
 #[cfg(test)]
@@ -17,13 +16,18 @@ mod tests;
 
 #[derive(Default)]
 pub struct Db {
-    registry: RefCell<HashMap<TypeId, QueryId>>,
+    store: RefCell<Store>,
+}
+
+#[derive(Default)]
+struct Store {
+    registry: HashMap<TypeId, QueryId>,
     // `dyn Any` == `Memos<Sig>`
-    queries: RefCell<Vec<Box<dyn Any>>>,
+    query_memos: Vec<Box<dyn Any>>,
 }
 
 #[allow(type_alias_bounds)]
-type Memos<S>
+type QueryMemos<S>
 where
     S: Sig,
 = HashMap<S::Args, MemoEntry<S>>;
@@ -89,12 +93,17 @@ impl Db {
     where
         S: Sig,
     {
-        let queries = self.queries.borrow();
-        let memos: &Memos<S> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
+        let store = self.store.borrow();
+        let memos: &QueryMemos<S> = store
+            .query_memos
+            .get(id.idx())
+            .unwrap()
+            .downcast_ref()
+            .unwrap();
         match memos.get(args) {
             Some(entry) => {
-                // Call `entry.value()` for its side effect: panicking if
-                // evaluation is circular.
+                // Call `entry.value()` for its side effect to panic if a cycle
+                // is detected.
                 let _ = entry.value();
                 true
             }
@@ -106,8 +115,13 @@ impl Db {
     where
         Q: Query,
     {
-        let queries = self.queries.borrow();
-        let memos: &Memos<Q> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
+        let store = self.store.borrow();
+        let memos: &QueryMemos<Q> = store
+            .query_memos
+            .get(id.idx())
+            .unwrap()
+            .downcast_ref()
+            .unwrap();
         memos.get(args).unwrap().value().clone()
     }
 
@@ -125,8 +139,13 @@ impl Db {
     where
         S: Sig,
     {
-        let queries = self.queries.borrow();
-        let memos: &Memos<S> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
+        let store = self.store.borrow();
+        let memos: &QueryMemos<S> = store
+            .query_memos
+            .get(id.idx())
+            .unwrap()
+            .downcast_ref()
+            .unwrap();
         memos.len()
     }
 
@@ -134,13 +153,18 @@ impl Db {
     where
         S: Sig,
     {
-        match self.registry.borrow_mut().entry(TypeId::of::<S>()) {
-            Entry::Vacant(entry) => {
-                let mut queries = self.queries.borrow_mut();
-                let id = queries.intern(Box::new(Memos::<S>::default())).into();
-                *entry.insert(id)
+        let key = TypeId::of::<S>();
+        let mut store = self.store.borrow_mut();
+        match store.registry.get(&key) {
+            Some(id) => *id,
+            None => {
+                let id = store
+                    .query_memos
+                    .intern(Box::new(QueryMemos::<S>::default()))
+                    .into();
+                store.registry.insert(key, id);
+                id
             }
-            Entry::Occupied(entry) => *entry.get(),
         }
     }
 
@@ -148,8 +172,13 @@ impl Db {
     where
         S: Sig,
     {
-        let mut queries = self.queries.borrow_mut();
-        let memos: &mut Memos<S> = queries.get_mut(id.idx()).unwrap().downcast_mut().unwrap();
+        let mut store = self.store.borrow_mut();
+        let memos: &mut QueryMemos<S> = store
+            .query_memos
+            .get_mut(id.idx())
+            .unwrap()
+            .downcast_mut()
+            .unwrap();
         memos.insert(args, MemoEntry::new(memo));
     }
 
@@ -158,8 +187,13 @@ impl Db {
         S: Sig,
         S::Args: Eq + Hash,
     {
-        let mut queries = self.queries.borrow_mut();
-        let memos: &mut Memos<S> = queries.get_mut(id.idx()).unwrap().downcast_mut().unwrap();
+        let mut store = self.store.borrow_mut();
+        let memos: &mut QueryMemos<S> = store
+            .query_memos
+            .get_mut(id.idx())
+            .unwrap()
+            .downcast_mut()
+            .unwrap();
         memos.get_mut(args).unwrap().memo = memo;
     }
 }
