@@ -30,14 +30,7 @@ struct Store {
 type QueryMemos<S>
 where
     S: Sig,
-= HashMap<S::Args, MemoEntry<S>>;
-
-struct MemoEntry<S>
-where
-    S: Sig,
-{
-    memo: Memo<S>,
-}
+= HashMap<S::Args, Memo<S>>;
 
 enum Memo<S>
 where
@@ -101,12 +94,8 @@ impl Db {
             .downcast_ref()
             .unwrap();
         match memos.get(args) {
-            Some(entry) => {
-                // Call `entry.value()` for its side effect to panic if a cycle
-                // is detected.
-                let _ = entry.value();
-                true
-            }
+            Some(Memo::InProgress) => panic!("cycle detected"),
+            Some(Memo::Ready(_)) => true,
             None => false,
         }
     }
@@ -122,7 +111,11 @@ impl Db {
             .unwrap()
             .downcast_ref()
             .unwrap();
-        memos.get(args).unwrap().value().clone()
+
+        match memos.get(args).unwrap() {
+            Memo::InProgress => panic!("cycle detected"),
+            Memo::Ready(value) => value.clone(),
+        }
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
@@ -179,7 +172,7 @@ impl Db {
             .unwrap()
             .downcast_mut()
             .unwrap();
-        memos.insert(args, MemoEntry::new(memo));
+        memos.insert(args, memo);
     }
 
     fn set_memo<S>(&self, id: QueryId, args: &S::Args, memo: Memo<S>)
@@ -194,23 +187,7 @@ impl Db {
             .unwrap()
             .downcast_mut()
             .unwrap();
-        memos.get_mut(args).unwrap().memo = memo;
-    }
-}
-
-impl<S> MemoEntry<S>
-where
-    S: Sig,
-{
-    fn new(memo: Memo<S>) -> Self {
-        Self { memo }
-    }
-
-    fn value(&self) -> &S::Out {
-        match &self.memo {
-            Memo::Ready(value) => value,
-            Memo::InProgress => panic!("cycle detected"),
-        }
+        *memos.get_mut(args).unwrap() = memo;
     }
 }
 
