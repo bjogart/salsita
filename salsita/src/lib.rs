@@ -16,12 +16,13 @@ mod tests;
 
 #[derive(Default)]
 pub struct Db {
-    store: RefCell<Store>,
+    inner: RefCell<DbInner>,
 }
 
 #[derive(Default)]
-struct Store {
+struct DbInner {
     registry: HashMap<TypeId, QueryId>,
+    // TODO replace dyn Any with type-erased newtype
     // `dyn Any` == `Memos<Sig>`
     query_memos: Vec<Box<dyn Any>>,
 }
@@ -86,7 +87,7 @@ impl Db {
     where
         S: Sig,
     {
-        let store = self.store.borrow();
+        let store = self.inner.borrow();
         let memos: &QueryMemos<S> = store
             .query_memos
             .get(id.idx())
@@ -104,7 +105,7 @@ impl Db {
     where
         Q: Query,
     {
-        let store = self.store.borrow();
+        let store = self.inner.borrow();
         let memos: &QueryMemos<Q> = store
             .query_memos
             .get(id.idx())
@@ -132,7 +133,7 @@ impl Db {
     where
         S: Sig,
     {
-        let store = self.store.borrow();
+        let store = self.inner.borrow();
         let memos: &QueryMemos<S> = store
             .query_memos
             .get(id.idx())
@@ -147,7 +148,7 @@ impl Db {
         S: Sig,
     {
         let key = TypeId::of::<S>();
-        let mut store = self.store.borrow_mut();
+        let mut store = self.inner.borrow_mut();
         match store.registry.get(&key) {
             Some(id) => *id,
             None => {
@@ -165,7 +166,7 @@ impl Db {
     where
         S: Sig,
     {
-        let mut store = self.store.borrow_mut();
+        let mut store = self.inner.borrow_mut();
         let memos: &mut QueryMemos<S> = store
             .query_memos
             .get_mut(id.idx())
@@ -180,7 +181,7 @@ impl Db {
         S: Sig,
         S::Args: Eq + Hash,
     {
-        let mut store = self.store.borrow_mut();
+        let mut store = self.inner.borrow_mut();
         let memos: &mut QueryMemos<S> = store
             .query_memos
             .get_mut(id.idx())
