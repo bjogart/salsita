@@ -4,6 +4,7 @@ use core::cell::Ref;
 use core::cell::RefCell;
 use core::cell::RefMut;
 use core::cmp;
+use core::error::Error;
 use core::fmt;
 use core::hash;
 use core::hash::Hash;
@@ -32,13 +33,23 @@ struct QueryData {
     memos: Box<dyn Any>,
 }
 
-enum MemoEntry<S>
+struct MemoEntry<S>
+where
+    S: Sig,
+{
+    memo: Memo<S>,
+}
+
+enum Memo<S>
 where
     S: Sig,
 {
     InProgress,
     Ready(S::Output),
 }
+
+#[derive(Debug)]
+struct CycleError;
 
 #[allow(type_alias_bounds)]
 type Memos<S>
@@ -87,7 +98,7 @@ impl Db {
         let mut query = self.queries.query_mut(query_id);
         let memos = query.memos_mut::<I>();
         let input_id = InputId::new(memos.len());
-        memos.insert(input_id, MemoEntry::Ready(value));
+        memos.insert(input_id, MemoEntry::with_value(value));
         input_id
     }
 
@@ -97,20 +108,22 @@ impl Db {
         Q::Args: Clone + Eq + Hash,
     {
         let is_memoized = match self.queries.query_mut(id).memos_mut::<Q>().get(args) {
-            Some(MemoEntry::InProgress) => panic!("cycle detected"),
-            Some(MemoEntry::Ready(_)) => true,
+            Some(entry) => match entry.memoized_value() {
+                Ok(_) => true,
+                Err(err) => panic!("{err}"),
+            },
             None => false,
         };
         if !is_memoized {
             self.queries
                 .query_mut(id)
                 .memos_mut::<Q>()
-                .insert(args.clone(), MemoEntry::InProgress);
+                .insert(args.clone(), MemoEntry::in_progress());
             let output = Q::eval(self, args);
             self.queries
                 .query_mut(id)
                 .memos_mut::<Q>()
-                .insert(args.clone(), MemoEntry::Ready(output));
+                .insert(args.clone(), MemoEntry::with_value(output));
         }
     }
 
@@ -120,11 +133,14 @@ impl Db {
         Q::Args: Clone + Eq + Hash,
         Q::Output: Clone,
     {
-        match self.queries.query(id).memos::<Q>().get(&args) {
-            None => panic!("`Db::memoized` called but value is not memoized"),
-            Some(MemoEntry::InProgress) => unreachable!(),
-            Some(MemoEntry::Ready(output)) => output.clone(),
-        }
+        self.queries
+            .query(id)
+            .memos::<Q>()
+            .get(&args)
+            .unwrap()
+            .memoized_value()
+            .unwrap()
+            .clone()
     }
 
     fn get_or_assign_id<S>(&self) -> QueryId
@@ -182,6 +198,38 @@ impl QueryData {
         S: Sig,
     {
         self.memos.downcast_mut().unwrap()
+    }
+}
+
+impl<S> MemoEntry<S>
+where
+    S: Sig,
+{
+    fn in_progress() -> Self {
+        Self {
+            memo: Memo::InProgress,
+        }
+    }
+
+    fn with_value(out: S::Output) -> Self {
+        Self {
+            memo: Memo::Ready(out),
+        }
+    }
+
+    fn memoized_value(&self) -> Result<&S::Output, CycleError> {
+        match &self.memo {
+            Memo::Ready(output) => Ok(output),
+            Memo::InProgress => Err(CycleError),
+        }
+    }
+}
+
+impl Error for CycleError {}
+
+impl fmt::Display for CycleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "cycle detected")
     }
 }
 
