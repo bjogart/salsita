@@ -1,5 +1,5 @@
-use crate::intern::Id;
 use crate::intern::Intern as _;
+use crate::intern::QueryId;
 use core::any::Any;
 use core::any::TypeId;
 use core::cell::RefCell;
@@ -21,9 +21,6 @@ pub struct Db {
     // `dyn Any` == `Memos<Sig>`
     queries: RefCell<Vec<Box<dyn Any>>>,
 }
-
-#[derive(Clone, Copy)]
-struct QueryId(Id);
 
 #[allow(type_alias_bounds)]
 type Memos<S>
@@ -50,8 +47,9 @@ pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Out;
 }
 
-pub trait Input: 'static {
-    type Value: Clone;
+pub trait Sig: 'static {
+    type Args: Clone + Eq + Hash;
+    type Out: Clone;
 }
 
 pub struct InputId<I>
@@ -62,9 +60,8 @@ where
     marker: PhantomData<I>,
 }
 
-pub trait Sig: 'static {
-    type Args: Clone + Eq + Hash;
-    type Out: Clone;
+pub trait Input: 'static {
+    type Value: Clone;
 }
 
 impl Db {
@@ -75,39 +72,6 @@ impl Db {
         let id = self.get_or_assign_id::<Q>();
         self.ensure_memoized::<Q>(id, args);
         self.unwrap_memoized::<Q>(id, args)
-    }
-
-    fn unwrap_memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Out
-    where
-        Q: Query,
-    {
-        let queries = self.queries.borrow();
-        let memos: &Memos<Q> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
-        memos.get(args).unwrap().value().clone()
-    }
-
-    pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
-    where
-        I: Input,
-    {
-        let query_id = self.get_or_assign_id::<I>();
-        let input_id = InputId::new(self.memos_len::<I>(query_id));
-        self.new_memo::<I>(query_id, input_id, Memo::Ready(value));
-        input_id
-    }
-
-    fn get_or_assign_id<S>(&self) -> QueryId
-    where
-        S: Sig,
-    {
-        match self.registry.borrow_mut().entry(TypeId::of::<S>()) {
-            Entry::Vacant(entry) => {
-                let mut queries = self.queries.borrow_mut();
-                let id = queries.intern(Box::new(Memos::<S>::default())).into();
-                *entry.insert(id)
-            }
-            Entry::Occupied(entry) => *entry.get(),
-        }
     }
 
     fn ensure_memoized<Q>(&self, id: QueryId, args: &Q::Args)
@@ -138,6 +102,25 @@ impl Db {
         }
     }
 
+    fn unwrap_memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Out
+    where
+        Q: Query,
+    {
+        let queries = self.queries.borrow();
+        let memos: &Memos<Q> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
+        memos.get(args).unwrap().value().clone()
+    }
+
+    pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
+    where
+        I: Input,
+    {
+        let query_id = self.get_or_assign_id::<I>();
+        let input_id = InputId::new(self.memos_len::<I>(query_id));
+        self.new_memo::<I>(query_id, input_id, Memo::Ready(value));
+        input_id
+    }
+
     fn memos_len<S>(&self, id: QueryId) -> usize
     where
         S: Sig,
@@ -145,6 +128,20 @@ impl Db {
         let queries = self.queries.borrow();
         let memos: &Memos<S> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
         memos.len()
+    }
+
+    fn get_or_assign_id<S>(&self) -> QueryId
+    where
+        S: Sig,
+    {
+        match self.registry.borrow_mut().entry(TypeId::of::<S>()) {
+            Entry::Vacant(entry) => {
+                let mut queries = self.queries.borrow_mut();
+                let id = queries.intern(Box::new(Memos::<S>::default())).into();
+                *entry.insert(id)
+            }
+            Entry::Occupied(entry) => *entry.get(),
+        }
     }
 
     fn new_memo<S>(&self, id: QueryId, args: S::Args, memo: Memo<S>)
@@ -183,15 +180,12 @@ where
     }
 }
 
-impl QueryId {
-    fn idx(self) -> usize {
-        self.0.idx()
-    }
-}
-
-impl From<Id> for QueryId {
-    fn from(id: Id) -> Self {
-        Self(id)
+impl<I> Query for I
+where
+    I: Input,
+{
+    fn eval(_: &Db, _: &Self::Args) -> Self::Out {
+        unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
 }
 
@@ -201,15 +195,6 @@ where
 {
     type Args = InputId<Self>;
     type Out = <Self as Input>::Value;
-}
-
-impl<I> Query for I
-where
-    I: Input,
-{
-    fn eval(_: &Db, _: &Self::Args) -> Self::Out {
-        unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
-    }
 }
 
 impl<I> InputId<I>
