@@ -1,8 +1,6 @@
 use core::any::Any;
 use core::any::TypeId;
-use core::cell::Ref;
 use core::cell::RefCell;
-use core::cell::RefMut;
 use core::cmp;
 use core::error::Error;
 use core::fmt;
@@ -18,19 +16,14 @@ mod tests;
 #[derive(Default)]
 pub struct Db {
     registry: RefCell<HashMap<TypeId, QueryId>>,
-    queries: Queries,
+    // `dyn Any` == `Memos<Sig>`
+    queries: RefCell<Vec<Box<dyn Any>>>,
 }
 
 #[derive(Clone, Copy)]
 struct QueryId {
     idx: usize,
 }
-
-#[derive(Default)]
-struct Queries(
-    // `dyn Any` == `Memos<Sig>`
-    RefCell<Vec<Box<dyn Any>>>,
-);
 
 #[allow(type_alias_bounds)]
 type Memos<S>
@@ -61,7 +54,7 @@ pub trait Query: Sig {
 }
 
 pub trait Input: 'static {
-    type Value;
+    type Value: Clone;
 }
 
 pub struct InputId<I>
@@ -73,26 +66,27 @@ where
 }
 
 pub trait Sig: 'static {
-    type Args;
-    type Out;
+    type Args: Clone + Eq + Hash;
+    type Out: Clone;
 }
 
 impl Db {
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
-        Q::Args: Clone + Eq + Hash,
-        Q::Out: Clone,
     {
         let id = self.get_or_assign_id::<Q>();
         self.ensure_memoized::<Q>(id, args);
-        self.queries
-            .memos::<Q>(id)
-            .get(args)
-            .unwrap()
-            .memoized_value()
-            .unwrap()
-            .clone()
+        self.unwrap_memoized::<Q>(id, args)
+    }
+
+    fn unwrap_memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Out
+    where
+        Q: Query,
+    {
+        let queries = self.queries.borrow();
+        let memos: &Memos<Q> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
+        memos.get(args).unwrap().memoized_value().unwrap().clone()
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
@@ -100,33 +94,9 @@ impl Db {
         I: Input,
     {
         let query_id = self.get_or_assign_id::<I>();
-        let mut memos = self.queries.memos_mut::<I>(query_id);
-        let input_id = InputId::new(memos.len());
-        memos.insert(input_id, MemoEntry::with_value(value));
+        let input_id = InputId::new(self.memos_len::<I>(query_id));
+        self.new_memo::<I>(query_id, input_id, Memo::Ready(value));
         input_id
-    }
-
-    fn ensure_memoized<Q>(&self, id: QueryId, args: &Q::Args)
-    where
-        Q: Query,
-        Q::Args: Clone + Eq + Hash,
-    {
-        {
-            let mut memos = self.queries.memos_mut::<Q>(id);
-            let is_memoized = match memos.get(args).map(|entry| entry.memoized_value()) {
-                Some(Err(err)) => panic!("{err}"),
-                Some(Ok(_)) => true,
-                None => false,
-            };
-            if is_memoized {
-                return;
-            }
-            memos.insert(args.clone(), MemoEntry::in_progress());
-        }
-        let out = Q::eval(self, args);
-        self.queries
-            .memos_mut::<Q>(id)
-            .insert(args.clone(), MemoEntry::with_value(out));
     }
 
     fn get_or_assign_id<S>(&self) -> QueryId
@@ -134,47 +104,72 @@ impl Db {
         S: Sig,
     {
         match self.registry.borrow_mut().entry(TypeId::of::<S>()) {
-            Entry::Vacant(entry) => *entry.insert(self.queries.register::<S>()),
+            Entry::Vacant(entry) => {
+                let mut queries = self.queries.borrow_mut();
+                let id = QueryId { idx: queries.len() };
+                queries.push(Box::new(Memos::<S>::default()));
+                *entry.insert(id)
+            }
             Entry::Occupied(entry) => *entry.get(),
         }
     }
-}
 
-impl Queries {
-    fn memos<S>(&self, id: QueryId) -> Ref<'_, Memos<S>>
+    fn ensure_memoized<Q>(&self, id: QueryId, args: &Q::Args)
     where
-        S: Sig,
+        Q: Query,
     {
-        Ref::map(self.0.borrow(), |queries| {
-            queries
-                .get(id.idx)
-                .unwrap()
-                .downcast_ref::<Memos<S>>()
-                .unwrap()
-        })
+        if !self.is_memoized::<Q>(id, args) {
+            self.new_memo::<Q>(id, args.clone(), Memo::InProgress);
+            let out = Q::eval(self, args);
+            self.update_memo::<Q, _>(id, args, |entry| entry.memo = Memo::Ready(out));
+        }
     }
 
-    fn memos_mut<S>(&self, id: QueryId) -> RefMut<'_, Memos<S>>
+    fn is_memoized<S>(&self, id: QueryId, args: &S::Args) -> bool
     where
         S: Sig,
     {
-        RefMut::map(self.0.borrow_mut(), |queries| {
-            queries
-                .get_mut(id.idx)
-                .unwrap()
-                .downcast_mut::<Memos<S>>()
-                .unwrap()
-        })
+        let queries = self.queries.borrow();
+        let memos: &Memos<S> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
+        match memos.get(args) {
+            Some(entry) => {
+                if let Err(err) = entry.memoized_value() {
+                    panic!("{err}")
+                }
+                true
+            }
+            None => false,
+        }
     }
 
-    fn register<S>(&self) -> QueryId
+    fn memos_len<S>(&self, id: QueryId) -> usize
     where
         S: Sig,
     {
-        let mut this = self.0.borrow_mut();
-        let id = QueryId { idx: this.len() };
-        this.push(Box::new(Memos::<S>::default()));
-        id
+        let queries = self.queries.borrow();
+        let memos: &Memos<S> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
+        memos.len()
+    }
+
+    fn new_memo<S>(&self, id: QueryId, args: S::Args, memo: Memo<S>)
+    where
+        S: Sig,
+    {
+        let mut queries = self.queries.borrow_mut();
+        let memos: &mut Memos<S> = queries.get_mut(id.idx).unwrap().downcast_mut().unwrap();
+        memos.insert(args, MemoEntry::new(memo));
+    }
+
+    fn update_memo<S, F>(&self, id: QueryId, args: &S::Args, f: F)
+    where
+        S: Sig,
+        S::Args: Eq + Hash,
+        F: FnOnce(&mut MemoEntry<S>),
+    {
+        let mut queries = self.queries.borrow_mut();
+        let memos: &mut Memos<S> = queries.get_mut(id.idx).unwrap().downcast_mut().unwrap();
+        let entry = memos.get_mut(args).unwrap();
+        f(entry);
     }
 }
 
@@ -182,16 +177,8 @@ impl<S> MemoEntry<S>
 where
     S: Sig,
 {
-    fn in_progress() -> Self {
-        Self {
-            memo: Memo::InProgress,
-        }
-    }
-
-    fn with_value(out: S::Out) -> Self {
-        Self {
-            memo: Memo::Ready(out),
-        }
+    fn new(memo: Memo<S>) -> Self {
+        Self { memo }
     }
 
     fn memoized_value(&self) -> Result<&S::Out, CycleError> {
