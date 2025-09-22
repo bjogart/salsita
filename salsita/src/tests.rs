@@ -8,10 +8,10 @@ fn cycles_panic() {
     struct Cycle;
     impl Sig for Cycle {
         type Args = ();
-        type Output = ();
+        type Out = ();
     }
     impl Query for Cycle {
-        fn eval(db: &Db, (): &Self::Args) -> Self::Output {
+        fn eval(db: &Db, (): &Self::Args) -> Self::Out {
             db.query::<Self>(&())
         }
     }

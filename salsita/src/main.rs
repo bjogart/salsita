@@ -18,10 +18,10 @@ fn main() {
     struct BurritoPriceWithShipping;
     impl Sig for BurritoPriceWithShipping {
         type Args = InputId<BurritoPrice>;
-        type Output = usize;
+        type Out = usize;
     }
     impl Query for BurritoPriceWithShipping {
-        fn eval(db: &Db, burrito_price: &Self::Args) -> Self::Output {
+        fn eval(db: &Db, burrito_price: &Self::Args) -> Self::Out {
             EVALS.fetch_add(1, Ordering::AcqRel);
             db.query::<BurritoPrice>(burrito_price) + 2
         }
@@ -35,10 +35,10 @@ fn main() {
     struct TotalPrice;
     impl Sig for TotalPrice {
         type Args = (InputId<BurritoPrice>, InputId<NumBurritos>);
-        type Output = usize;
+        type Out = usize;
     }
     impl Query for TotalPrice {
-        fn eval(db: &Db, args: &Self::Args) -> Self::Output {
+        fn eval(db: &Db, args: &Self::Args) -> Self::Out {
             EVALS.fetch_add(1, Ordering::AcqRel);
             let (burrito_price, num_burritos) = args;
             db.query::<BurritoPriceWithShipping>(burrito_price)
@@ -54,10 +54,10 @@ fn main() {
     struct SalsaInOrder;
     impl Sig for SalsaInOrder {
         type Args = (InputId<SalsaPerBurrito>, InputId<NumBurritos>);
-        type Output = usize;
+        type Out = usize;
     }
     impl Query for SalsaInOrder {
-        fn eval(db: &Db, args: &Self::Args) -> Self::Output {
+        fn eval(db: &Db, args: &Self::Args) -> Self::Out {
             EVALS.fetch_add(1, Ordering::AcqRel);
             let (salsa_per_burrito, num_burritos) = args;
             db.query::<NumBurritos>(num_burritos) * db.query::<SalsaPerBurrito>(salsa_per_burrito)

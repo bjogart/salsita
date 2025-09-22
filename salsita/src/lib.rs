@@ -45,7 +45,7 @@ where
     S: Sig,
 {
     InProgress,
-    Ready(S::Output),
+    Ready(S::Out),
 }
 
 #[derive(Debug)]
@@ -58,7 +58,7 @@ where
 = HashMap<S::Args, MemoEntry<S>>;
 
 pub trait Query: Sig {
-    fn eval(db: &Db, args: &Self::Args) -> Self::Output;
+    fn eval(db: &Db, args: &Self::Args) -> Self::Out;
 }
 
 pub trait Input: 'static {
@@ -75,15 +75,15 @@ where
 
 pub trait Sig: 'static {
     type Args;
-    type Output;
+    type Out;
 }
 
 impl Db {
-    pub fn query<Q>(&self, args: &Q::Args) -> Q::Output
+    pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
         Q::Args: Clone + Eq + Hash,
-        Q::Output: Clone,
+        Q::Out: Clone,
     {
         let id = self.get_or_assign_id::<Q>();
         self.ensure_memoized::<Q>(id, &args);
@@ -119,19 +119,19 @@ impl Db {
                 .query_mut(id)
                 .memos_mut::<Q>()
                 .insert(args.clone(), MemoEntry::in_progress());
-            let output = Q::eval(self, args);
+            let out = Q::eval(self, args);
             self.queries
                 .query_mut(id)
                 .memos_mut::<Q>()
-                .insert(args.clone(), MemoEntry::with_value(output));
+                .insert(args.clone(), MemoEntry::with_value(out));
         }
     }
 
-    fn memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Output
+    fn memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Out
     where
         Q: Query,
         Q::Args: Clone + Eq + Hash,
-        Q::Output: Clone,
+        Q::Out: Clone,
     {
         self.queries
             .query(id)
@@ -211,15 +211,15 @@ where
         }
     }
 
-    fn with_value(out: S::Output) -> Self {
+    fn with_value(out: S::Out) -> Self {
         Self {
             memo: Memo::Ready(out),
         }
     }
 
-    fn memoized_value(&self) -> Result<&S::Output, CycleError> {
+    fn memoized_value(&self) -> Result<&S::Out, CycleError> {
         match &self.memo {
-            Memo::Ready(output) => Ok(output),
+            Memo::Ready(value) => Ok(value),
             Memo::InProgress => Err(CycleError),
         }
     }
@@ -238,14 +238,14 @@ where
     I: Input,
 {
     type Args = InputId<Self>;
-    type Output = <Self as Input>::Value;
+    type Out = <Self as Input>::Value;
 }
 
 impl<I> Query for I
 where
     I: Input,
 {
-    fn eval(_: &Db, _: &Self::Args) -> Self::Output {
+    fn eval(_: &Db, _: &Self::Args) -> Self::Out {
         unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
 }
