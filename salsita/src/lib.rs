@@ -85,8 +85,14 @@ impl Db {
         Q::Out: Clone,
     {
         let id = self.get_or_assign_id::<Q>();
-        self.ensure_memoized::<Q>(id, &args);
-        self.memoized::<Q>(id, &args)
+        self.ensure_memoized::<Q>(id, args);
+        self.queries
+            .memos::<Q>(id)
+            .get(args)
+            .unwrap()
+            .memoized_value()
+            .unwrap()
+            .clone()
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
@@ -123,21 +129,6 @@ impl Db {
         }
     }
 
-    fn memoized<Q>(&self, id: QueryId, args: &Q::Args) -> Q::Out
-    where
-        Q: Query,
-        Q::Args: Clone + Eq + Hash,
-        Q::Out: Clone,
-    {
-        self.queries
-            .query::<Q>(id)
-            .get(&args)
-            .unwrap()
-            .memoized_value()
-            .unwrap()
-            .clone()
-    }
-
     fn get_or_assign_id<S>(&self) -> QueryId
     where
         S: Sig,
@@ -150,12 +141,16 @@ impl Db {
 }
 
 impl Queries {
-    fn query<S>(&self, query: QueryId) -> Ref<'_, Memos<S>>
+    fn memos<S>(&self, id: QueryId) -> Ref<'_, Memos<S>>
     where
         S: Sig,
     {
         Ref::map(self.0.borrow(), |queries| {
-            queries.get(query.idx).unwrap().downcast_ref().unwrap()
+            queries
+                .get(id.idx)
+                .unwrap()
+                .downcast_ref::<Memos<S>>()
+                .unwrap()
         })
     }
 
