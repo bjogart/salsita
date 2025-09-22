@@ -100,7 +100,7 @@ impl Db {
         I: Input,
     {
         let query_id = self.get_or_assign_id::<I>();
-        let mut memos = self.queries.query_mut::<I>(query_id);
+        let mut memos = self.queries.memos_mut::<I>(query_id);
         let input_id = InputId::new(memos.len());
         memos.insert(input_id, MemoEntry::with_value(value));
         input_id
@@ -111,22 +111,22 @@ impl Db {
         Q: Query,
         Q::Args: Clone + Eq + Hash,
     {
-        let is_memoized = match self.queries.query_mut::<Q>(id).get(args) {
-            Some(entry) => match entry.memoized_value() {
-                Ok(_) => true,
-                Err(err) => panic!("{err}"),
-            },
-            None => false,
-        };
-        if !is_memoized {
-            self.queries
-                .query_mut::<Q>(id)
-                .insert(args.clone(), MemoEntry::in_progress());
-            let out = Q::eval(self, args);
-            self.queries
-                .query_mut::<Q>(id)
-                .insert(args.clone(), MemoEntry::with_value(out));
+        {
+            let mut memos = self.queries.memos_mut::<Q>(id);
+            let is_memoized = match memos.get(args).map(|entry| entry.memoized_value()) {
+                Some(Err(err)) => panic!("{err}"),
+                Some(Ok(_)) => true,
+                None => false,
+            };
+            if is_memoized {
+                return;
+            }
+            memos.insert(args.clone(), MemoEntry::in_progress());
         }
+        let out = Q::eval(self, args);
+        self.queries
+            .memos_mut::<Q>(id)
+            .insert(args.clone(), MemoEntry::with_value(out));
     }
 
     fn get_or_assign_id<S>(&self) -> QueryId
@@ -154,12 +154,16 @@ impl Queries {
         })
     }
 
-    fn query_mut<S>(&self, query: QueryId) -> RefMut<'_, Memos<S>>
+    fn memos_mut<S>(&self, id: QueryId) -> RefMut<'_, Memos<S>>
     where
         S: Sig,
     {
         RefMut::map(self.0.borrow_mut(), |queries| {
-            queries.get_mut(query.idx).unwrap().downcast_mut().unwrap()
+            queries
+                .get_mut(id.idx)
+                .unwrap()
+                .downcast_mut::<Memos<S>>()
+                .unwrap()
         })
     }
 
