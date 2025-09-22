@@ -27,11 +27,16 @@ struct QueryId {
 }
 
 #[derive(Default)]
-struct Queries(RefCell<Vec<QueryData>>);
+struct Queries(
+    // `dyn Any` == `Memos<Sig>`
+    RefCell<Vec<Box<dyn Any>>>,
+);
 
-struct QueryData {
-    memos: Box<dyn Any>,
-}
+#[allow(type_alias_bounds)]
+type Memos<S>
+where
+    S: Sig,
+= HashMap<S::Args, MemoEntry<S>>;
 
 struct MemoEntry<S>
 where
@@ -50,12 +55,6 @@ where
 
 #[derive(Debug)]
 struct CycleError;
-
-#[allow(type_alias_bounds)]
-type Memos<S>
-where
-    S: Sig,
-= HashMap<S::Args, MemoEntry<S>>;
 
 pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Out;
@@ -95,8 +94,7 @@ impl Db {
         I: Input,
     {
         let query_id = self.get_or_assign_id::<I>();
-        let mut query = self.queries.query_mut(query_id);
-        let memos = query.memos_mut::<I>();
+        let mut memos = self.queries.query_mut::<I>(query_id);
         let input_id = InputId::new(memos.len());
         memos.insert(input_id, MemoEntry::with_value(value));
         input_id
@@ -107,7 +105,7 @@ impl Db {
         Q: Query,
         Q::Args: Clone + Eq + Hash,
     {
-        let is_memoized = match self.queries.query_mut(id).memos_mut::<Q>().get(args) {
+        let is_memoized = match self.queries.query_mut::<Q>(id).get(args) {
             Some(entry) => match entry.memoized_value() {
                 Ok(_) => true,
                 Err(err) => panic!("{err}"),
@@ -116,13 +114,11 @@ impl Db {
         };
         if !is_memoized {
             self.queries
-                .query_mut(id)
-                .memos_mut::<Q>()
+                .query_mut::<Q>(id)
                 .insert(args.clone(), MemoEntry::in_progress());
             let out = Q::eval(self, args);
             self.queries
-                .query_mut(id)
-                .memos_mut::<Q>()
+                .query_mut::<Q>(id)
                 .insert(args.clone(), MemoEntry::with_value(out));
         }
     }
@@ -134,8 +130,7 @@ impl Db {
         Q::Out: Clone,
     {
         self.queries
-            .query(id)
-            .memos::<Q>()
+            .query::<Q>(id)
             .get(&args)
             .unwrap()
             .memoized_value()
@@ -155,13 +150,21 @@ impl Db {
 }
 
 impl Queries {
-    fn query(&self, query: QueryId) -> Ref<'_, QueryData> {
-        Ref::map(self.0.borrow(), |queries| queries.get(query.idx).unwrap())
+    fn query<S>(&self, query: QueryId) -> Ref<'_, Memos<S>>
+    where
+        S: Sig,
+    {
+        Ref::map(self.0.borrow(), |queries| {
+            queries.get(query.idx).unwrap().downcast_ref().unwrap()
+        })
     }
 
-    fn query_mut(&self, query: QueryId) -> RefMut<'_, QueryData> {
+    fn query_mut<S>(&self, query: QueryId) -> RefMut<'_, Memos<S>>
+    where
+        S: Sig,
+    {
         RefMut::map(self.0.borrow_mut(), |queries| {
-            queries.get_mut(query.idx).unwrap()
+            queries.get_mut(query.idx).unwrap().downcast_mut().unwrap()
         })
     }
 
@@ -171,33 +174,8 @@ impl Queries {
     {
         let mut this = self.0.borrow_mut();
         let id = QueryId { idx: this.len() };
-        this.push(QueryData::new::<S>());
+        this.push(Box::new(Memos::<S>::default()));
         id
-    }
-}
-
-impl QueryData {
-    fn new<S>() -> Self
-    where
-        S: Sig,
-    {
-        Self {
-            memos: Box::new(Memos::<S>::default()),
-        }
-    }
-
-    fn memos<S>(&self) -> &Memos<S>
-    where
-        S: Sig,
-    {
-        self.memos.downcast_ref().unwrap()
-    }
-
-    fn memos_mut<S>(&mut self) -> &mut Memos<S>
-    where
-        S: Sig,
-    {
-        self.memos.downcast_mut().unwrap()
     }
 }
 
