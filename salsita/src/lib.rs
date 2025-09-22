@@ -1,3 +1,5 @@
+use crate::intern::Id;
+use crate::intern::Intern as _;
 use core::any::Any;
 use core::any::TypeId;
 use core::cell::RefCell;
@@ -9,6 +11,7 @@ use core::marker::PhantomData;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 
+mod intern;
 #[cfg(test)]
 mod tests;
 
@@ -20,9 +23,7 @@ pub struct Db {
 }
 
 #[derive(Clone, Copy)]
-struct QueryId {
-    idx: usize,
-}
+struct QueryId(Id);
 
 #[allow(type_alias_bounds)]
 type Memos<S>
@@ -81,7 +82,7 @@ impl Db {
         Q: Query,
     {
         let queries = self.queries.borrow();
-        let memos: &Memos<Q> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
+        let memos: &Memos<Q> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
         memos.get(args).unwrap().value().clone()
     }
 
@@ -102,8 +103,7 @@ impl Db {
         match self.registry.borrow_mut().entry(TypeId::of::<S>()) {
             Entry::Vacant(entry) => {
                 let mut queries = self.queries.borrow_mut();
-                let id = QueryId { idx: queries.len() };
-                queries.push(Box::new(Memos::<S>::default()));
+                let id = queries.intern(Box::new(Memos::<S>::default())).into();
                 *entry.insert(id)
             }
             Entry::Occupied(entry) => *entry.get(),
@@ -126,7 +126,7 @@ impl Db {
         S: Sig,
     {
         let queries = self.queries.borrow();
-        let memos: &Memos<S> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
+        let memos: &Memos<S> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
         match memos.get(args) {
             Some(entry) => {
                 // Call `entry.value()` for its side effect: panicking if
@@ -143,7 +143,7 @@ impl Db {
         S: Sig,
     {
         let queries = self.queries.borrow();
-        let memos: &Memos<S> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
+        let memos: &Memos<S> = queries.get(id.idx()).unwrap().downcast_ref().unwrap();
         memos.len()
     }
 
@@ -152,7 +152,7 @@ impl Db {
         S: Sig,
     {
         let mut queries = self.queries.borrow_mut();
-        let memos: &mut Memos<S> = queries.get_mut(id.idx).unwrap().downcast_mut().unwrap();
+        let memos: &mut Memos<S> = queries.get_mut(id.idx()).unwrap().downcast_mut().unwrap();
         memos.insert(args, MemoEntry::new(memo));
     }
 
@@ -162,7 +162,7 @@ impl Db {
         S::Args: Eq + Hash,
     {
         let mut queries = self.queries.borrow_mut();
-        let memos: &mut Memos<S> = queries.get_mut(id.idx).unwrap().downcast_mut().unwrap();
+        let memos: &mut Memos<S> = queries.get_mut(id.idx()).unwrap().downcast_mut().unwrap();
         memos.get_mut(args).unwrap().memo = memo;
     }
 }
@@ -180,6 +180,18 @@ where
             Memo::Ready(value) => value,
             Memo::InProgress => panic!("cycle detected"),
         }
+    }
+}
+
+impl QueryId {
+    fn idx(self) -> usize {
+        self.0.idx()
+    }
+}
+
+impl From<Id> for QueryId {
+    fn from(id: Id) -> Self {
+        Self(id)
     }
 }
 
