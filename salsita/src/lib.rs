@@ -117,7 +117,7 @@ impl Db {
         if !self.is_memoized::<Q>(id, args) {
             self.new_memo::<Q>(id, args.clone(), Memo::InProgress);
             let out = Q::eval(self, args);
-            self.update_memo::<Q, _>(id, args, |entry| entry.memo = Memo::Ready(out));
+            self.set_memo::<Q>(id, args, Memo::Ready(out));
         }
     }
 
@@ -156,16 +156,14 @@ impl Db {
         memos.insert(args, MemoEntry::new(memo));
     }
 
-    fn update_memo<S, F>(&self, id: QueryId, args: &S::Args, f: F)
+    fn set_memo<S>(&self, id: QueryId, args: &S::Args, memo: Memo<S>)
     where
         S: Sig,
         S::Args: Eq + Hash,
-        F: FnOnce(&mut MemoEntry<S>),
     {
         let mut queries = self.queries.borrow_mut();
         let memos: &mut Memos<S> = queries.get_mut(id.idx).unwrap().downcast_mut().unwrap();
-        let entry = memos.get_mut(args).unwrap();
-        f(entry);
+        memos.get_mut(args).unwrap().memo = memo;
     }
 }
 
