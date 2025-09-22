@@ -2,7 +2,6 @@ use core::any::Any;
 use core::any::TypeId;
 use core::cell::RefCell;
 use core::cmp;
-use core::error::Error;
 use core::fmt;
 use core::hash;
 use core::hash::Hash;
@@ -46,9 +45,6 @@ where
     Ready(S::Out),
 }
 
-#[derive(Debug)]
-struct CycleError;
-
 pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Out;
 }
@@ -86,7 +82,7 @@ impl Db {
     {
         let queries = self.queries.borrow();
         let memos: &Memos<Q> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
-        memos.get(args).unwrap().memoized_value().unwrap().clone()
+        memos.get(args).unwrap().value().clone()
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
@@ -133,9 +129,9 @@ impl Db {
         let memos: &Memos<S> = queries.get(id.idx).unwrap().downcast_ref().unwrap();
         match memos.get(args) {
             Some(entry) => {
-                if let Err(err) = entry.memoized_value() {
-                    panic!("{err}")
-                }
+                // Call `entry.value()` for its side effect: panicking if
+                // evaluation is circular.
+                let _ = entry.value();
                 true
             }
             None => false,
@@ -181,19 +177,11 @@ where
         Self { memo }
     }
 
-    fn memoized_value(&self) -> Result<&S::Out, CycleError> {
+    fn value(&self) -> &S::Out {
         match &self.memo {
-            Memo::Ready(value) => Ok(value),
-            Memo::InProgress => Err(CycleError),
+            Memo::Ready(value) => value,
+            Memo::InProgress => panic!("cycle detected"),
         }
-    }
-}
-
-impl Error for CycleError {}
-
-impl fmt::Display for CycleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "cycle detected")
     }
 }
 
