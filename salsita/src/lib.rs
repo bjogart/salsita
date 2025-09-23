@@ -63,6 +63,16 @@ pub trait Input: 'static {
 }
 
 impl Db {
+    pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
+    where
+        I: Input,
+    {
+        let query_id = self.get_or_assign_id::<I>();
+        let input_id = InputId::new(self.memos_len::<I>(query_id));
+        self.new_memo::<I>(query_id, input_id, Memo::Ready(value));
+        input_id
+    }
+
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
@@ -117,16 +127,6 @@ impl Db {
             Memo::InProgress => panic!("cycle detected"),
             Memo::Ready(value) => value.clone(),
         }
-    }
-
-    pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
-    where
-        I: Input,
-    {
-        let query_id = self.get_or_assign_id::<I>();
-        let input_id = InputId::new(self.memos_len::<I>(query_id));
-        self.new_memo::<I>(query_id, input_id, Memo::Ready(value));
-        input_id
     }
 
     fn memos_len<S>(&self, id: QueryId) -> usize
