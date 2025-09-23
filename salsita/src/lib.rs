@@ -152,10 +152,11 @@ impl Db {
         match store.registry.get(&key) {
             Some(id) => *id,
             None => {
-                let id = store
-                    .query_memos
-                    .intern(Box::new(QueryMemos::<S>::default()))
-                    .into();
+                let id = QueryId::from(
+                    store
+                        .query_memos
+                        .intern(Box::new(QueryMemos::<S>::default())),
+                );
                 store.registry.insert(key, id);
                 id
             }
