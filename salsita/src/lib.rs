@@ -22,16 +22,14 @@ pub struct Db {
 #[derive(Default)]
 struct Store {
     registry: HashMap<TypeId, QueryId>,
-    // TODO replace dyn Any with type-erased newtype
-    // `dyn Any` == `Memos<Sig>`
-    query_memos: Vec<Box<dyn Any>>,
+    query_memos: Vec<AnyQueryMemos>,
 }
 
-#[allow(type_alias_bounds)]
-type QueryMemos<S>
+struct QueryMemos<S>(HashMap<S::Args, Memo<S>>)
 where
-    S: Sig,
-= HashMap<S::Args, Memo<S>>;
+    S: Sig;
+
+struct AnyQueryMemos(Box<dyn Any>);
 
 enum Memo<S>
 where
@@ -98,13 +96,8 @@ impl Db {
         S: Sig,
     {
         let store = self.store.borrow();
-        let memos: &QueryMemos<S> = store
-            .query_memos
-            .get(id.idx())
-            .unwrap()
-            .downcast_ref()
-            .unwrap();
-        match memos.get(args) {
+        let memos = store.query_memos.get(id.idx()).unwrap().downcast_ref::<S>();
+        match memos.0.get(args) {
             Some(Memo::InProgress) => panic!("cycle detected"),
             Some(Memo::Ready(_)) => true,
             None => false,
@@ -116,14 +109,8 @@ impl Db {
         Q: Query,
     {
         let store = self.store.borrow();
-        let memos: &QueryMemos<Q> = store
-            .query_memos
-            .get(id.idx())
-            .unwrap()
-            .downcast_ref()
-            .unwrap();
-
-        match memos.get(args).unwrap() {
+        let memos = store.query_memos.get(id.idx()).unwrap().downcast_ref::<Q>();
+        match memos.0.get(args).unwrap() {
             Memo::InProgress => panic!("cycle detected"),
             Memo::Ready(value) => value.clone(),
         }
@@ -134,13 +121,8 @@ impl Db {
         S: Sig,
     {
         let store = self.store.borrow();
-        let memos: &QueryMemos<S> = store
-            .query_memos
-            .get(id.idx())
-            .unwrap()
-            .downcast_ref()
-            .unwrap();
-        memos.len()
+        let memos = store.query_memos.get(id.idx()).unwrap().downcast_ref::<S>();
+        memos.0.len()
     }
 
     fn get_or_assign_id<S>(&self) -> QueryId
@@ -152,11 +134,7 @@ impl Db {
         match store.registry.get(&key) {
             Some(id) => *id,
             None => {
-                let id = QueryId::from(
-                    store
-                        .query_memos
-                        .intern(Box::new(QueryMemos::<S>::default())),
-                );
+                let id = QueryId::from(store.query_memos.intern(AnyQueryMemos::new::<S>()));
                 store.registry.insert(key, id);
                 id
             }
@@ -168,13 +146,8 @@ impl Db {
         S: Sig,
     {
         let mut store = self.store.borrow_mut();
-        let memos: &mut QueryMemos<S> = store
-            .query_memos
-            .get_mut(id.idx())
-            .unwrap()
-            .downcast_mut()
-            .unwrap();
-        memos.insert(args, memo);
+        let memos: &mut QueryMemos<S> = store.query_memos.get_mut(id.idx()).unwrap().downcast_mut();
+        memos.0.insert(args, memo);
     }
 
     fn set_memo<S>(&self, id: QueryId, args: &S::Args, memo: Memo<S>)
@@ -183,13 +156,37 @@ impl Db {
         S::Args: Eq + Hash,
     {
         let mut store = self.store.borrow_mut();
-        let memos: &mut QueryMemos<S> = store
-            .query_memos
-            .get_mut(id.idx())
-            .unwrap()
-            .downcast_mut()
-            .unwrap();
-        *memos.get_mut(args).unwrap() = memo;
+        let memos: &mut QueryMemos<S> = store.query_memos.get_mut(id.idx()).unwrap().downcast_mut();
+        *memos.0.get_mut(args).unwrap() = memo;
+    }
+}
+
+impl AnyQueryMemos {
+    fn new<S>() -> Self
+    where
+        S: Sig,
+    {
+        Self(Box::new(QueryMemos::<S>(HashMap::default())))
+    }
+
+    fn downcast_ref<S>(&self) -> &QueryMemos<S>
+    where
+        S: Sig,
+    {
+        match self.0.downcast_ref() {
+            Some(this) => this,
+            None => panic!("type cast failed"),
+        }
+    }
+
+    fn downcast_mut<S>(&mut self) -> &mut QueryMemos<S>
+    where
+        S: Sig,
+    {
+        match self.0.downcast_mut() {
+            Some(this) => this,
+            None => panic!("type cast failed"),
+        }
     }
 }
 
