@@ -5,7 +5,7 @@ use core::hash;
 use core::marker::PhantomData;
 
 pub(crate) trait Intern<T> {
-    fn intern(&mut self, v: T) -> Id;
+    fn intern(&mut self, v: T) -> RawId;
 }
 
 pub struct InputId<I>(MemoId, PhantomData<I>)
@@ -13,16 +13,16 @@ where
     I: Input;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct MemoId(Id);
+pub(crate) struct MemoId(RawId);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct Id {
+pub(crate) struct RawId {
     idx: usize,
 }
 
 impl<T> Intern<T> for Vec<T> {
-    fn intern(&mut self, v: T) -> Id {
-        let id = Id { idx: self.len() };
+    fn intern(&mut self, v: T) -> RawId {
+        let id = RawId { idx: self.len() };
         self.push(v);
         id
     }
@@ -105,13 +105,13 @@ impl MemoId {
     }
 }
 
-impl From<Id> for MemoId {
-    fn from(id: Id) -> Self {
+impl From<RawId> for MemoId {
+    fn from(id: RawId) -> Self {
         Self(id)
     }
 }
 
-impl Id {
+impl RawId {
     pub(crate) fn idx(self) -> usize {
         self.idx
     }
