@@ -2,9 +2,9 @@ use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use salsita::Db;
 use salsita::Input;
-use salsita::InputId;
 use salsita::Query;
 use salsita::Sig;
+use salsita::intern::InputId;
 
 // TODO move to tests and remove main.rs once debugging is no longer necessary
 fn main() {
