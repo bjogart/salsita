@@ -32,18 +32,16 @@ where
     S: Sig;
 
 struct MemoEntry {
-    memo: AnyMemo,
+    state: MemoState,
+    value: Option<AnyMemoValue>,
 }
 
-struct AnyMemo(Box<dyn Any>);
-
-enum Memo<S>
-where
-    S: Sig,
-{
+enum MemoState {
     InProgress,
-    Ready(S::Out),
+    Ready,
 }
+
+struct AnyMemoValue(Box<dyn Any>);
 
 pub trait Query: Sig {
     fn eval(db: &Db, args: &Self::Args) -> Self::Out;
@@ -64,7 +62,8 @@ impl Db {
         I: Input,
     {
         let store = self.store.get_mut();
-        let memo_id = Self::new_memo::<I>(store, InputId::from, Memo::Ready(value));
+        let memo_id = Self::new_memo::<I>(store, InputId::from);
+        Self::memo_entry(store, memo_id).set_value::<I>(value);
         InputId::from(memo_id)
     }
 
@@ -73,36 +72,29 @@ impl Db {
         Q: Query,
     {
         let mut store = self.store.borrow_mut();
-        let (mut store, memo_id) = match Self::query_memos::<Q>(&mut store).0.get(args).copied() {
+        let (memo_id, value) = match Self::query_memos::<Q>(&mut store).0.get(args).copied() {
             None => {
-                let memo_id = {
-                    let mut store = store;
-                    Self::new_memo::<Q>(&mut store, |_| args.clone(), Memo::InProgress)
-                };
-                // `Q::eval` might call `Db::query` recursively, and it needs
-                // mutable access to `self.store`. The borrow is dropped at the
-                // end of the above block, so calling `Q::eval` is safe.
-                let out = Q::eval(self, args);
-                let mut store = self.store.borrow_mut();
-                *Self::memo_entry(&mut store, memo_id)
-                    .memo
-                    .downcast_mut::<Q>() = Memo::Ready(out);
-                (store, memo_id)
+                let memo_id = Self::new_memo::<Q>(&mut store, |_| args.clone());
+                (memo_id, None)
             }
             Some(memo_id) => {
-                // `Memo::value()` panics if a cycle is detected.
-                let _ = Self::memo_entry(&mut store, memo_id)
-                    .memo
-                    .downcast_mut::<Q>()
-                    .value();
-                (store, memo_id)
+                // `MemoEntry::value()` panics if a cycle is detected.
+                let value = Self::memo_entry(&mut store, memo_id).value::<Q>();
+                (memo_id, value.cloned())
             }
         };
-        Self::memo_entry(&mut store, memo_id)
-            .memo
-            .downcast::<Q>()
-            .value()
-            .clone()
+        match value {
+            Some(value) => value,
+            None => {
+                {
+                    let mut store = store;
+                    Self::memo_entry(&mut store, memo_id).set_state(MemoState::InProgress);
+                }
+                let out = Q::eval(self, args);
+                Self::memo_entry(&mut self.store.borrow_mut(), memo_id).set_state(MemoState::Ready);
+                out
+            }
+        }
     }
 
     fn query_memos<Q>(store: &mut Store) -> &mut QueryMemos<Q>
@@ -116,15 +108,11 @@ impl Db {
             .downcast_mut::<Q>()
     }
 
-    fn new_memo<Q>(
-        store: &mut Store,
-        make_args: impl FnOnce(MemoId) -> Q::Args,
-        memo: Memo<Q>,
-    ) -> MemoId
+    fn new_memo<Q>(store: &mut Store, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
     where
         Q: Query,
     {
-        let entry = MemoEntry::new(memo);
+        let entry = MemoEntry::new();
         let raw_id = store.memo_entries.intern(entry);
         let memo_id = MemoId::from(raw_id);
         Self::query_memos::<Q>(store)
@@ -167,46 +155,54 @@ impl AnyQueryMemos {
 }
 
 impl MemoEntry {
-    fn new<S>(memo: Memo<S>) -> Self
+    fn new() -> Self {
+        Self {
+            state: MemoState::Ready,
+            value: None,
+        }
+    }
+
+    fn set_state(&mut self, state: MemoState) {
+        self.state = state;
+    }
+
+    fn set_value<S>(&mut self, value: S::Out)
     where
         S: Sig,
     {
-        Self {
-            memo: AnyMemo(Box::new(memo)),
+        self.value = Some(AnyMemoValue::new::<S>(value));
+    }
+
+    fn value<S>(&self) -> Option<&S::Out>
+    where
+        S: Sig,
+    {
+        self.panic_if_cycle();
+        self.value.as_ref().map(AnyMemoValue::downcast::<S>)
+    }
+
+    fn panic_if_cycle(&self) {
+        if let MemoState::InProgress = self.state {
+            panic!("cycle detected")
         }
     }
 }
 
-impl AnyMemo {
-    fn downcast<S>(&self) -> &Memo<S>
+impl AnyMemoValue {
+    fn new<S>(value: S::Out) -> Self
+    where
+        S: Sig,
+    {
+        Self(Box::new(value))
+    }
+
+    fn downcast<S>(&self) -> &S::Out
     where
         S: Sig,
     {
         match self.0.downcast_ref() {
             Some(this) => this,
             None => panic!("type cast failed"),
-        }
-    }
-
-    fn downcast_mut<S>(&mut self) -> &mut Memo<S>
-    where
-        S: Sig,
-    {
-        match self.0.downcast_mut() {
-            Some(this) => this,
-            None => panic!("type cast failed"),
-        }
-    }
-}
-
-impl<S> Memo<S>
-where
-    S: Sig,
-{
-    fn value(&self) -> &S::Out {
-        match self {
-            Memo::InProgress => panic!("cycle detected"),
-            Memo::Ready(out) => out,
         }
     }
 }

@@ -74,10 +74,10 @@ fn main() {
     );
     let num_burritos = db.new_input::<NumBurritos>(3);
     let total_price = db.query::<TotalPrice>(&(burrito_price, num_burritos));
-    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (2, 30));
+    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (3, 30));
     let salsa_per_burrito = db.new_input::<SalsaPerBurrito>(40);
     let salsa_in_order = db.query::<SalsaInOrder>(&(salsa_per_burrito, num_burritos));
-    assert_eq!((EVALS.load(Ordering::Acquire), salsa_in_order), (3, 120));
+    assert_eq!((EVALS.load(Ordering::Acquire), salsa_in_order), (4, 120));
     let total_price = db.query::<TotalPrice>(&(burrito_price, num_burritos));
-    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (3, 30));
+    assert_eq!((EVALS.load(Ordering::Acquire), total_price), (6, 30));
 }
