@@ -28,6 +28,15 @@ impl<T> Intern<T> for Vec<T> {
     }
 }
 
+impl<I> InputId<I>
+where
+    I: Input,
+{
+    pub(crate) fn memo_id(self) -> MemoId {
+        self.0
+    }
+}
+
 impl<I> From<MemoId> for InputId<I>
 where
     I: Input,

@@ -67,21 +67,25 @@ impl Db {
         InputId::from(memo_id)
     }
 
+    pub fn set_input<I>(&mut self, id: InputId<I>, value: I::Value)
+    where
+        I: Input,
+    {
+        let store = self.store.get_mut();
+        Self::memo_entry(store, id.memo_id()).set_value::<I>(value);
+    }
+
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
     {
         let mut store = self.store.borrow_mut();
         let (memo_id, value) = match Self::query_memos::<Q>(&mut store).0.get(args).copied() {
-            None => {
-                let memo_id = Self::new_memo::<Q>(&mut store, |_| args.clone());
-                (memo_id, None)
-            }
-            Some(memo_id) => {
-                // `MemoEntry::value()` panics if a cycle is detected.
-                let value = Self::memo_entry(&mut store, memo_id).value::<Q>();
-                (memo_id, value.cloned())
-            }
+            None => (Self::new_memo::<Q>(&mut store, |_| args.clone()), None),
+            Some(memo_id) => (
+                memo_id,
+                Self::memo_entry(&mut store, memo_id).value::<Q>().cloned(),
+            ),
         };
         match value {
             Some(value) => value,
