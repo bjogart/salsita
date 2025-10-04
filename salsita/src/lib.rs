@@ -18,14 +18,14 @@ pub struct Db {
 
 #[derive(Default)]
 struct Store {
-    query_memos: HashMap<QueryId, AnyQueryMemos>,
+    query_index: QueryIndex,
     memo_entries: Vec<MemoEntry>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
-struct QueryId(TypeId);
+#[derive(Default)]
+struct QueryIndex(HashMap<TypeId, QueryMemosAny>);
 
-struct AnyQueryMemos(Box<dyn Any>);
+struct QueryMemosAny(Box<dyn Any>);
 
 struct QueryMemos<S>(HashMap<S::Args, MemoId>)
 where
@@ -80,7 +80,7 @@ impl Db {
         Q: Query,
     {
         let mut store = self.store.borrow_mut();
-        let (memo_id, value) = match Self::query_memos::<Q>(&mut store).0.get(args).copied() {
+        let (memo_id, value) = match store.query_index.memo::<Q>(args) {
             None => (Self::new_memo::<Q>(&mut store, |_| args.clone()), None),
             Some(memo_id) => (
                 memo_id,
@@ -101,27 +101,16 @@ impl Db {
         }
     }
 
-    fn query_memos<Q>(store: &mut Store) -> &mut QueryMemos<Q>
+    fn new_memo<S>(store: &mut Store, make_args: impl FnOnce(MemoId) -> S::Args) -> MemoId
     where
-        Q: Query,
-    {
-        store
-            .query_memos
-            .entry(QueryId::new::<Q>())
-            .or_insert_with(AnyQueryMemos::new::<Q>)
-            .downcast_mut::<Q>()
-    }
-
-    fn new_memo<Q>(store: &mut Store, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
-    where
-        Q: Query,
+        S: Sig,
     {
         let entry = MemoEntry::new();
         let raw_id = store.memo_entries.intern(entry);
         let memo_id = MemoId::from(raw_id);
-        Self::query_memos::<Q>(store)
-            .0
-            .insert(make_args(memo_id), memo_id);
+        store
+            .query_index
+            .insert_memo::<S>(make_args(memo_id), memo_id);
         memo_id
     }
 
@@ -130,21 +119,46 @@ impl Db {
     }
 }
 
-impl QueryId {
-    fn new<Q>() -> Self
+impl QueryIndex {
+    fn insert_memo<S>(&mut self, args: S::Args, id: MemoId)
     where
-        Q: Query,
+        S: Sig,
     {
-        Self(TypeId::of::<Q>())
+        let Self(index) = self;
+        let memos_any = index
+            .entry(TypeId::of::<S>())
+            .or_insert_with(QueryMemosAny::new::<S>);
+        let QueryMemos(memos) = memos_any.downcast_mut::<S>();
+        memos.insert(args, id);
+    }
+
+    fn memo<S>(&self, args: &S::Args) -> Option<MemoId>
+    where
+        S: Sig,
+    {
+        let Self(index) = self;
+        let memos_any = index.get(&TypeId::of::<S>())?;
+        let QueryMemos(memos) = memos_any.downcast::<S>();
+        memos.get(args).copied()
     }
 }
 
-impl AnyQueryMemos {
+impl QueryMemosAny {
     fn new<S>() -> Self
     where
         S: Sig,
     {
         Self(Box::new(QueryMemos::<S>(HashMap::default())))
+    }
+
+    fn downcast<S>(&self) -> &QueryMemos<S>
+    where
+        S: Sig,
+    {
+        match self.0.downcast_ref() {
+            Some(this) => this,
+            None => panic!("type cast failed"),
+        }
     }
 
     fn downcast_mut<S>(&mut self) -> &mut QueryMemos<S>
