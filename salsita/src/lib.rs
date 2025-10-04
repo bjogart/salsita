@@ -6,6 +6,7 @@ use core::any::TypeId;
 use core::cell::RefCell;
 use core::hash::Hash;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 pub mod intern;
 #[cfg(test)]
@@ -13,17 +14,17 @@ mod tests;
 
 #[derive(Default)]
 pub struct Db {
+    query_index: QueryIndex,
     store: RefCell<Store>,
 }
 
 #[derive(Default)]
 struct Store {
-    query_index: QueryIndex,
     memo_entries: Vec<MemoEntry>,
 }
 
 #[derive(Default)]
-struct QueryIndex(HashMap<TypeId, QueryMemosAny>);
+struct QueryIndex(RwLock<HashMap<TypeId, QueryMemosAny>>);
 
 struct QueryMemosAny(Box<dyn Any>);
 
@@ -62,7 +63,7 @@ impl Db {
         I: Input,
     {
         let store = self.store.get_mut();
-        let memo_id = Self::new_memo::<I>(store, InputId::from);
+        let memo_id = Self::new_memo::<I>(&self.query_index, store, InputId::from);
         Self::memo_entry(store, memo_id).set_value::<I>(value);
         InputId::from(memo_id)
     }
@@ -80,8 +81,11 @@ impl Db {
         Q: Query,
     {
         let mut store = self.store.borrow_mut();
-        let (memo_id, value) = match store.query_index.memo::<Q>(args) {
-            None => (Self::new_memo::<Q>(&mut store, |_| args.clone()), None),
+        let (memo_id, value) = match self.query_index.memo::<Q>(args) {
+            None => (
+                Self::new_memo::<Q>(&self.query_index, &mut store, |_| args.clone()),
+                None,
+            ),
             Some(memo_id) => (
                 memo_id,
                 Self::memo_entry(&mut store, memo_id).value::<Q>().cloned(),
@@ -101,16 +105,18 @@ impl Db {
         }
     }
 
-    fn new_memo<S>(store: &mut Store, make_args: impl FnOnce(MemoId) -> S::Args) -> MemoId
+    fn new_memo<S>(
+        query_index: &QueryIndex,
+        store: &mut Store,
+        make_args: impl FnOnce(MemoId) -> S::Args,
+    ) -> MemoId
     where
         S: Sig,
     {
         let entry = MemoEntry::new();
         let raw_id = store.memo_entries.intern(entry);
         let memo_id = MemoId::from(raw_id);
-        store
-            .query_index
-            .insert_memo::<S>(make_args(memo_id), memo_id);
+        query_index.insert_memo::<S>(make_args(memo_id), memo_id);
         memo_id
     }
 
@@ -120,11 +126,11 @@ impl Db {
 }
 
 impl QueryIndex {
-    fn insert_memo<S>(&mut self, args: S::Args, id: MemoId)
+    fn insert_memo<S>(&self, args: S::Args, id: MemoId)
     where
         S: Sig,
     {
-        let Self(index) = self;
+        let mut index = self.0.write().unwrap();
         let memos_any = index
             .entry(TypeId::of::<S>())
             .or_insert_with(QueryMemosAny::new::<S>);
@@ -136,7 +142,7 @@ impl QueryIndex {
     where
         S: Sig,
     {
-        let Self(index) = self;
+        let index = self.0.read().unwrap();
         let memos_any = index.get(&TypeId::of::<S>())?;
         let QueryMemos(memos) = memos_any.downcast::<S>();
         memos.get(args).copied()
