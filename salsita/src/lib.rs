@@ -18,11 +18,11 @@ pub struct Db {
 }
 
 #[derive(Default)]
-struct MemoIndex(RefCell<HashMap<TypeId, QueryMemosAny>>);
+struct MemoIndex(RefCell<HashMap<TypeId, PerQueryIndexAny>>);
 
-struct QueryMemosAny(Box<dyn Any>);
+struct PerQueryIndexAny(Box<dyn Any>);
 
-struct QueryMemos<Q>(RefCell<HashMap<Q::Args, MemoId>>)
+struct PerQueryIndex<Q>(RefCell<HashMap<Q::Args, MemoId>>)
 where
     Q: Query;
 
@@ -124,11 +124,11 @@ impl MemoIndex {
         Q: Query,
     {
         let mut index = self.0.borrow_mut();
-        let memos_any = index
+        let query_index_any = index
             .entry(TypeId::of::<Q>())
-            .or_insert_with(QueryMemosAny::new::<Q>);
-        let QueryMemos(memos) = memos_any.downcast::<Q>();
-        memos.borrow_mut().insert(args, id);
+            .or_insert_with(PerQueryIndexAny::new::<Q>);
+        let PerQueryIndex(query_index) = query_index_any.downcast::<Q>();
+        query_index.borrow_mut().insert(args, id);
     }
 
     fn memo<Q>(&self, args: &Q::Args) -> Option<MemoId>
@@ -136,21 +136,21 @@ impl MemoIndex {
         Q: Query,
     {
         let index = self.0.borrow();
-        let memos_any = index.get(&TypeId::of::<Q>())?;
-        let QueryMemos(memos) = memos_any.downcast::<Q>();
-        memos.borrow().get(args).copied()
+        let query_index_any = index.get(&TypeId::of::<Q>())?;
+        let PerQueryIndex(query_index) = query_index_any.downcast::<Q>();
+        query_index.borrow().get(args).copied()
     }
 }
 
-impl QueryMemosAny {
+impl PerQueryIndexAny {
     fn new<Q>() -> Self
     where
         Q: Query,
     {
-        Self(Box::new(QueryMemos::<Q>(RefCell::default())))
+        Self(Box::new(PerQueryIndex::<Q>(RefCell::default())))
     }
 
-    fn downcast<Q>(&self) -> &QueryMemos<Q>
+    fn downcast<Q>(&self) -> &PerQueryIndex<Q>
     where
         Q: Query,
     {
