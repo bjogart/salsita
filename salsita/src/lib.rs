@@ -28,7 +28,7 @@ struct MemoIndex(RwLock<HashMap<TypeId, QueryMemosAny>>);
 
 struct QueryMemosAny(Box<dyn Any>);
 
-struct QueryMemos<Q>(HashMap<Q::Args, MemoId>)
+struct QueryMemos<Q>(RwLock<HashMap<Q::Args, MemoId>>)
 where
     Q: Query;
 
@@ -131,8 +131,8 @@ impl MemoIndex {
         let memos_any = index
             .entry(TypeId::of::<Q>())
             .or_insert_with(QueryMemosAny::new::<Q>);
-        let QueryMemos(memos) = memos_any.downcast_mut::<Q>();
-        memos.insert(args, id);
+        let QueryMemos(memos) = memos_any.downcast::<Q>();
+        memos.write().unwrap().insert(args, id);
     }
 
     fn memo<Q>(&self, args: &Q::Args) -> Option<MemoId>
@@ -142,7 +142,7 @@ impl MemoIndex {
         let index = self.0.read().unwrap();
         let memos_any = index.get(&TypeId::of::<Q>())?;
         let QueryMemos(memos) = memos_any.downcast::<Q>();
-        memos.get(args).copied()
+        memos.read().unwrap().get(args).copied()
     }
 }
 
@@ -151,7 +151,7 @@ impl QueryMemosAny {
     where
         Q: Query,
     {
-        Self(Box::new(QueryMemos::<Q>(HashMap::default())))
+        Self(Box::new(QueryMemos::<Q>(RwLock::default())))
     }
 
     fn downcast<Q>(&self) -> &QueryMemos<Q>
@@ -159,16 +159,6 @@ impl QueryMemosAny {
         Q: Query,
     {
         match self.0.downcast_ref() {
-            Some(this) => this,
-            None => panic!("type cast failed"),
-        }
-    }
-
-    fn downcast_mut<Q>(&mut self) -> &mut QueryMemos<Q>
-    where
-        Q: Query,
-    {
-        match self.0.downcast_mut() {
             Some(this) => this,
             None => panic!("type cast failed"),
         }
