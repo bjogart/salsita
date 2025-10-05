@@ -99,18 +99,23 @@ where
         let memo_id = self.get_or_alloc_memo::<Q>(args);
         let out = match self.memo_entries.memo_value::<Q>(memo_id) {
             Some(value) => value,
-            None => {
-                self.memo_entries
-                    .update_memo_state(memo_id, MemoState::InProgress);
-                let eval_guard = self.metrics.enter_eval::<Q>(args);
-                let out = Q::eval(self, args);
-                self.metrics.exit_eval::<Q>(eval_guard, args, &out);
-                self.memo_entries
-                    .update_memo_state(memo_id, MemoState::Ready);
-                out
-            }
+            None => self.compute_memo::<Q>(memo_id, args),
         };
         self.metrics.exit_query::<Q>(query_guard, args, &out);
+        out
+    }
+
+    fn compute_memo<Q>(&self, memo_id: MemoId, args: &Q::Args) -> Q::Out
+    where
+        Q: Query,
+    {
+        self.memo_entries
+            .update_memo_state(memo_id, MemoState::InProgress);
+        let eval_guard = self.metrics.enter_eval::<Q>(args);
+        let out = Q::eval(self, args);
+        self.metrics.exit_eval::<Q>(eval_guard, args, &out);
+        self.memo_entries
+            .update_memo_state(memo_id, MemoState::Ready);
         out
     }
 
