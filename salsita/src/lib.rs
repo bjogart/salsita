@@ -18,13 +18,20 @@ pub struct Db {
 }
 
 #[derive(Default)]
-struct MemoIndex(RefCell<HashMap<TypeId, PerQueryIndexAny>>);
+struct MemoIndex {
+    index: RefCell<HashMap<TypeId, PerQueryIndexAny>>,
+}
 
-struct PerQueryIndexAny(Box<dyn Any>);
+struct PerQueryIndexAny {
+    query_index: Box<dyn Any>,
+}
 
-struct PerQueryIndex<Q>(RefCell<HashMap<Q::Args, MemoId>>)
+struct PerQueryIndex<Q>
 where
-    Q: Query;
+    Q: Query,
+{
+    query_index: RefCell<HashMap<Q::Args, MemoId>>,
+}
 
 struct MemoEntry {
     state: MemoState,
@@ -123,11 +130,12 @@ impl MemoIndex {
     where
         Q: Query,
     {
-        let mut index = self.0.borrow_mut();
+        let Self { index } = self;
+        let mut index = index.borrow_mut();
         let query_index_any = index
             .entry(TypeId::of::<Q>())
             .or_insert_with(PerQueryIndexAny::new::<Q>);
-        let PerQueryIndex(query_index) = query_index_any.downcast::<Q>();
+        let PerQueryIndex { query_index } = query_index_any.downcast::<Q>();
         query_index.borrow_mut().insert(args, id);
     }
 
@@ -135,9 +143,10 @@ impl MemoIndex {
     where
         Q: Query,
     {
-        let index = self.0.borrow();
+        let Self { index } = self;
+        let index = index.borrow();
         let query_index_any = index.get(&TypeId::of::<Q>())?;
-        let PerQueryIndex(query_index) = query_index_any.downcast::<Q>();
+        let PerQueryIndex { query_index } = query_index_any.downcast::<Q>();
         query_index.borrow().get(args).copied()
     }
 }
@@ -147,14 +156,18 @@ impl PerQueryIndexAny {
     where
         Q: Query,
     {
-        Self(Box::new(PerQueryIndex::<Q>(RefCell::default())))
+        Self {
+            query_index: Box::new(PerQueryIndex::<Q> {
+                query_index: RefCell::default(),
+            }),
+        }
     }
 
     fn downcast<Q>(&self) -> &PerQueryIndex<Q>
     where
         Q: Query,
     {
-        match self.0.downcast_ref() {
+        match self.query_index.downcast_ref() {
             Some(this) => this,
             None => panic!("type cast failed"),
         }
