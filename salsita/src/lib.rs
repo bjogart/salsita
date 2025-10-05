@@ -6,7 +6,6 @@ use core::any::TypeId;
 use core::cell::RefCell;
 use core::hash::Hash;
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 pub mod intern;
 #[cfg(test)]
@@ -19,11 +18,11 @@ pub struct Db {
 }
 
 #[derive(Default)]
-struct MemoIndex(RwLock<HashMap<TypeId, QueryMemosAny>>);
+struct MemoIndex(RefCell<HashMap<TypeId, QueryMemosAny>>);
 
 struct QueryMemosAny(Box<dyn Any>);
 
-struct QueryMemos<Q>(RwLock<HashMap<Q::Args, MemoId>>)
+struct QueryMemos<Q>(RefCell<HashMap<Q::Args, MemoId>>)
 where
     Q: Query;
 
@@ -124,22 +123,22 @@ impl MemoIndex {
     where
         Q: Query,
     {
-        let mut index = self.0.write().unwrap();
+        let mut index = self.0.borrow_mut();
         let memos_any = index
             .entry(TypeId::of::<Q>())
             .or_insert_with(QueryMemosAny::new::<Q>);
         let QueryMemos(memos) = memos_any.downcast::<Q>();
-        memos.write().unwrap().insert(args, id);
+        memos.borrow_mut().insert(args, id);
     }
 
     fn memo<Q>(&self, args: &Q::Args) -> Option<MemoId>
     where
         Q: Query,
     {
-        let index = self.0.read().unwrap();
+        let index = self.0.borrow();
         let memos_any = index.get(&TypeId::of::<Q>())?;
         let QueryMemos(memos) = memos_any.downcast::<Q>();
-        memos.read().unwrap().get(args).copied()
+        memos.borrow().get(args).copied()
     }
 }
 
@@ -148,7 +147,7 @@ impl QueryMemosAny {
     where
         Q: Query,
     {
-        Self(Box::new(QueryMemos::<Q>(RwLock::default())))
+        Self(Box::new(QueryMemos::<Q>(RefCell::default())))
     }
 
     fn downcast<Q>(&self) -> &QueryMemos<Q>
