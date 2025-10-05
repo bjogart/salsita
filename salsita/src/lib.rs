@@ -1,6 +1,7 @@
 use crate::intern::InputId;
 use crate::intern::MemoId;
 use crate::intern::RawId;
+use crate::metrics::Metrics;
 use core::any::Any;
 use core::any::TypeId;
 use core::cell::RefCell;
@@ -8,11 +9,13 @@ use core::hash::Hash;
 use std::collections::HashMap;
 
 pub mod intern;
+pub mod metrics;
 #[cfg(test)]
 mod tests;
 
 #[derive(Default)]
-pub struct Db {
+pub struct Db<M> {
+    metrics: M,
     memo_index: MemoIndex,
     memo_entries: MemoEntries,
 }
@@ -53,14 +56,24 @@ struct MemoValueAny(Box<dyn Any>);
 pub trait Query: 'static {
     type Args: Clone + Eq + Hash;
     type Out: Clone;
-    fn eval(db: &Db, args: &Self::Args) -> Self::Out;
+
+    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    where
+        M: Metrics;
 }
 
 pub trait Input: 'static {
     type Value: Clone;
 }
 
-impl Db {
+impl<M> Db<M>
+where
+    M: Metrics,
+{
+    pub fn metrics(&mut self) -> &mut M {
+        &mut self.metrics
+    }
+
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
     where
         I: Input,
@@ -82,18 +95,23 @@ impl Db {
     where
         Q: Query,
     {
+        let query_guard = self.metrics.enter_query::<Q>(args);
         let memo_id = self.get_or_alloc_memo::<Q>(args);
-        match self.memo_entries.memo_value::<Q>(memo_id) {
+        let out = match self.memo_entries.memo_value::<Q>(memo_id) {
             Some(value) => value,
             None => {
                 self.memo_entries
                     .update_memo_state(memo_id, MemoState::InProgress);
+                let eval_guard = self.metrics.enter_eval::<Q>(args);
                 let out = Q::eval(self, args);
+                self.metrics.exit_eval::<Q>(eval_guard, args, &out);
                 self.memo_entries
                     .update_memo_state(memo_id, MemoState::Ready);
                 out
             }
-        }
+        };
+        self.metrics.exit_query::<Q>(query_guard, args, &out);
+        out
     }
 
     fn get_or_alloc_memo<Q>(&self, args: &Q::Args) -> MemoId
@@ -245,7 +263,10 @@ where
 
     type Out = <Self as Input>::Value;
 
-    fn eval(_: &Db, _: &Self::Args) -> Self::Out {
+    fn eval<M>(_: &Db<M>, _: &Self::Args) -> Self::Out
+    where
+        M: Metrics,
+    {
         unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
 }
