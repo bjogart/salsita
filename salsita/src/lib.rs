@@ -1,6 +1,6 @@
 use crate::intern::InputId;
-use crate::intern::Intern as _;
 use crate::intern::MemoId;
+use crate::intern::RawId;
 use core::any::Any;
 use core::any::TypeId;
 use core::cell::RefCell;
@@ -14,7 +14,7 @@ mod tests;
 #[derive(Default)]
 pub struct Db {
     memo_index: MemoIndex,
-    memo_entries: RefCell<Vec<MemoEntry>>,
+    memo_entries: MemoEntries,
 }
 
 #[derive(Default)]
@@ -33,9 +33,14 @@ where
     query_index: RefCell<HashMap<Q::Args, MemoId>>,
 }
 
+#[derive(Default)]
+struct MemoEntries {
+    entries: RefCell<Vec<RefCell<MemoEntry>>>,
+}
+
 struct MemoEntry {
     state: MemoState,
-    value: Option<AnyMemoValue>,
+    value: Option<MemoValueAny>,
 }
 
 enum MemoState {
@@ -43,7 +48,7 @@ enum MemoState {
     Ready,
 }
 
-struct AnyMemoValue(Box<dyn Any>);
+struct MemoValueAny(Box<dyn Any>);
 
 pub trait Query: 'static {
     type Args: Clone + Eq + Hash;
@@ -60,9 +65,8 @@ impl Db {
     where
         I: Input,
     {
-        let memo_id =
-            Self::new_memo::<I>(&self.memo_index, self.memo_entries.get_mut(), InputId::from);
-        Self::memo_entry(self.memo_entries.get_mut(), memo_id).set_value::<I>(value);
+        let memo_id = self.new_memo::<I>(InputId::from);
+        self.memo_entries.update_memo_value::<I>(memo_id, value);
         InputId::from(memo_id)
     }
 
@@ -70,58 +74,45 @@ impl Db {
     where
         I: Input,
     {
-        Self::memo_entry(self.memo_entries.get_mut(), id.memo_id()).set_value::<I>(value);
+        self.memo_entries
+            .update_memo_value::<I>(id.memo_id(), value);
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
     {
-        let mut memo_entries = self.memo_entries.borrow_mut();
-        let (memo_id, value) = match self.memo_index.memo::<Q>(args) {
-            None => (
-                Self::new_memo::<Q>(&self.memo_index, &mut memo_entries, |_| args.clone()),
-                None,
-            ),
-            Some(memo_id) => (
-                memo_id,
-                Self::memo_entry(&mut memo_entries, memo_id)
-                    .value::<Q>()
-                    .cloned(),
-            ),
-        };
-        match value {
+        let memo_id = self.get_or_alloc_memo::<Q>(args);
+        match self.memo_entries.memo_value::<Q>(memo_id) {
             Some(value) => value,
             None => {
-                {
-                    let mut memo_entries = memo_entries;
-                    Self::memo_entry(&mut memo_entries, memo_id).set_state(MemoState::InProgress);
-                }
+                self.memo_entries
+                    .update_memo_state(memo_id, MemoState::InProgress);
                 let out = Q::eval(self, args);
-                Self::memo_entry(&mut self.memo_entries.borrow_mut(), memo_id)
-                    .set_state(MemoState::Ready);
+                self.memo_entries
+                    .update_memo_state(memo_id, MemoState::Ready);
                 out
             }
         }
     }
 
-    fn new_memo<Q>(
-        memo_index: &MemoIndex,
-        memo_entries: &mut Vec<MemoEntry>,
-        make_args: impl FnOnce(MemoId) -> Q::Args,
-    ) -> MemoId
+    fn get_or_alloc_memo<Q>(&self, args: &Q::Args) -> MemoId
     where
         Q: Query,
     {
-        let entry = MemoEntry::new();
-        let raw_id = memo_entries.intern(entry);
-        let memo_id = MemoId::from(raw_id);
-        memo_index.insert_memo::<Q>(make_args(memo_id), memo_id);
-        memo_id
+        match self.memo_index.memo::<Q>(args) {
+            None => self.new_memo::<Q>(|_| args.clone()),
+            Some(memo_id) => memo_id,
+        }
     }
 
-    fn memo_entry(memo_entries: &mut Vec<MemoEntry>, memo_id: MemoId) -> &mut MemoEntry {
-        memo_entries.get_mut(memo_id.idx()).unwrap()
+    fn new_memo<Q>(&self, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
+    where
+        Q: Query,
+    {
+        let id = self.memo_entries.alloc_memo();
+        self.memo_index.insert_memo::<Q>(make_args(id), id);
+        id
     }
 }
 
@@ -174,6 +165,44 @@ impl PerQueryIndexAny {
     }
 }
 
+impl MemoEntries {
+    fn alloc_memo(&self) -> MemoId {
+        let mut entries = self.entries.borrow_mut();
+        let raw_id = RawId::new(entries.len());
+        entries.push(RefCell::new(MemoEntry::new()));
+        MemoId::from(raw_id)
+    }
+
+    fn update_memo_value<Q>(&self, id: MemoId, value: Q::Out)
+    where
+        Q: Query,
+    {
+        let entries = self.entries.borrow();
+        let mut entry = entries.get(id.idx()).unwrap().borrow_mut();
+        entry.value = Some(MemoValueAny::new::<Q>(value));
+    }
+
+    fn update_memo_state(&self, id: MemoId, state: MemoState) {
+        let entries = self.entries.borrow();
+        let mut entry = entries.get(id.idx()).unwrap().borrow_mut();
+        entry.state = state
+    }
+
+    fn memo_value<Q>(&self, id: MemoId) -> Option<Q::Out>
+    where
+        Q: Query,
+    {
+        let entries = self.entries.borrow();
+        let entry = entries.get(id.idx()).unwrap().borrow();
+        entry.panic_on_cycle();
+        entry
+            .value
+            .as_ref()
+            .map(MemoValueAny::downcast::<Q>)
+            .cloned()
+    }
+}
+
 impl MemoEntry {
     fn new() -> Self {
         Self {
@@ -182,33 +211,14 @@ impl MemoEntry {
         }
     }
 
-    fn set_state(&mut self, state: MemoState) {
-        self.state = state;
-    }
-
-    fn set_value<Q>(&mut self, value: Q::Out)
-    where
-        Q: Query,
-    {
-        self.value = Some(AnyMemoValue::new::<Q>(value));
-    }
-
-    fn value<Q>(&self) -> Option<&Q::Out>
-    where
-        Q: Query,
-    {
-        self.panic_if_cycle();
-        self.value.as_ref().map(AnyMemoValue::downcast::<Q>)
-    }
-
-    fn panic_if_cycle(&self) {
+    fn panic_on_cycle(&self) {
         if let MemoState::InProgress = self.state {
             panic!("cycle detected")
         }
     }
 }
 
-impl AnyMemoValue {
+impl MemoValueAny {
     fn new<Q>(value: Q::Out) -> Self
     where
         Q: Query,
