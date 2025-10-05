@@ -15,12 +15,7 @@ mod tests;
 #[derive(Default)]
 pub struct Db {
     memo_index: MemoIndex,
-    store: RefCell<Store>,
-}
-
-#[derive(Default)]
-struct Store {
-    memo_entries: Vec<MemoEntry>,
+    memo_entries: RefCell<Vec<MemoEntry>>,
 }
 
 #[derive(Default)]
@@ -59,9 +54,9 @@ impl Db {
     where
         I: Input,
     {
-        let store = self.store.get_mut();
-        let memo_id = Self::new_memo::<I>(&self.memo_index, store, InputId::from);
-        Self::memo_entry(store, memo_id).set_value::<I>(value);
+        let memo_id =
+            Self::new_memo::<I>(&self.memo_index, self.memo_entries.get_mut(), InputId::from);
+        Self::memo_entry(self.memo_entries.get_mut(), memo_id).set_value::<I>(value);
         InputId::from(memo_id)
     }
 
@@ -69,34 +64,36 @@ impl Db {
     where
         I: Input,
     {
-        let store = self.store.get_mut();
-        Self::memo_entry(store, id.memo_id()).set_value::<I>(value);
+        Self::memo_entry(self.memo_entries.get_mut(), id.memo_id()).set_value::<I>(value);
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
     {
-        let mut store = self.store.borrow_mut();
+        let mut memo_entries = self.memo_entries.borrow_mut();
         let (memo_id, value) = match self.memo_index.memo::<Q>(args) {
             None => (
-                Self::new_memo::<Q>(&self.memo_index, &mut store, |_| args.clone()),
+                Self::new_memo::<Q>(&self.memo_index, &mut memo_entries, |_| args.clone()),
                 None,
             ),
             Some(memo_id) => (
                 memo_id,
-                Self::memo_entry(&mut store, memo_id).value::<Q>().cloned(),
+                Self::memo_entry(&mut memo_entries, memo_id)
+                    .value::<Q>()
+                    .cloned(),
             ),
         };
         match value {
             Some(value) => value,
             None => {
                 {
-                    let mut store = store;
-                    Self::memo_entry(&mut store, memo_id).set_state(MemoState::InProgress);
+                    let mut memo_entries = memo_entries;
+                    Self::memo_entry(&mut memo_entries, memo_id).set_state(MemoState::InProgress);
                 }
                 let out = Q::eval(self, args);
-                Self::memo_entry(&mut self.store.borrow_mut(), memo_id).set_state(MemoState::Ready);
+                Self::memo_entry(&mut self.memo_entries.borrow_mut(), memo_id)
+                    .set_state(MemoState::Ready);
                 out
             }
         }
@@ -104,21 +101,21 @@ impl Db {
 
     fn new_memo<Q>(
         memo_index: &MemoIndex,
-        store: &mut Store,
+        memo_entries: &mut Vec<MemoEntry>,
         make_args: impl FnOnce(MemoId) -> Q::Args,
     ) -> MemoId
     where
         Q: Query,
     {
         let entry = MemoEntry::new();
-        let raw_id = store.memo_entries.intern(entry);
+        let raw_id = memo_entries.intern(entry);
         let memo_id = MemoId::from(raw_id);
         memo_index.insert_memo::<Q>(make_args(memo_id), memo_id);
         memo_id
     }
 
-    fn memo_entry(store: &mut Store, memo_id: MemoId) -> &mut MemoEntry {
-        store.memo_entries.get_mut(memo_id.idx()).unwrap()
+    fn memo_entry(memo_entries: &mut Vec<MemoEntry>, memo_id: MemoId) -> &mut MemoEntry {
+        memo_entries.get_mut(memo_id.idx()).unwrap()
     }
 }
 
