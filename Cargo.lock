@@ -9,6 +9,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
 
 [[package]]
+name = "append-only-vec"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7992085ec035cfe96992dd31bfd495a2ebd31969bb95f624471cb6c0b349e571"
+
+[[package]]
 name = "salsita"
 version = "0.1.0"
 
@@ -47,6 +53,7 @@ name = "xtask"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "append-only-vec",
  "xflags",
  "xshell",
 ]

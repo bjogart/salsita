@@ -3,7 +3,6 @@ use core::sync::atomic::Ordering;
 use salsita::Db;
 use salsita::Input;
 use salsita::Query;
-use salsita::Sig;
 use salsita::intern::InputId;
 
 // TODO move to tests and remove main.rs once debugging is no longer necessary
@@ -16,11 +15,9 @@ fn main() {
     }
 
     struct BurritoPriceWithShipping;
-    impl Sig for BurritoPriceWithShipping {
+    impl Query for BurritoPriceWithShipping {
         type Args = InputId<BurritoPrice>;
         type Out = usize;
-    }
-    impl Query for BurritoPriceWithShipping {
         fn eval(db: &Db, price: &Self::Args) -> Self::Out {
             EVALS.fetch_add(1, Ordering::AcqRel);
             db.query::<BurritoPrice>(price) + 2
@@ -33,11 +30,9 @@ fn main() {
     }
 
     struct TotalPrice;
-    impl Sig for TotalPrice {
+    impl Query for TotalPrice {
         type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
         type Out = usize;
-    }
-    impl Query for TotalPrice {
         fn eval(db: &Db, args: &Self::Args) -> Self::Out {
             EVALS.fetch_add(1, Ordering::AcqRel);
             let (price, count) = args;
@@ -51,11 +46,9 @@ fn main() {
     }
 
     struct SalsaInOrder;
-    impl Sig for SalsaInOrder {
+    impl Query for SalsaInOrder {
         type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
         type Out = usize;
-    }
-    impl Query for SalsaInOrder {
         fn eval(db: &Db, args: &Self::Args) -> Self::Out {
             EVALS.fetch_add(1, Ordering::AcqRel);
             let (salsa_per, count) = args;

@@ -28,9 +28,9 @@ struct MemoIndex(RwLock<HashMap<TypeId, QueryMemosAny>>);
 
 struct QueryMemosAny(Box<dyn Any>);
 
-struct QueryMemos<S>(HashMap<S::Args, MemoId>)
+struct QueryMemos<Q>(HashMap<Q::Args, MemoId>)
 where
-    S: Sig;
+    Q: Query;
 
 struct MemoEntry {
     state: MemoState,
@@ -44,13 +44,10 @@ enum MemoState {
 
 struct AnyMemoValue(Box<dyn Any>);
 
-pub trait Query: Sig {
-    fn eval(db: &Db, args: &Self::Args) -> Self::Out;
-}
-
-pub trait Sig: 'static {
+pub trait Query: 'static {
     type Args: Clone + Eq + Hash;
     type Out: Clone;
+    fn eval(db: &Db, args: &Self::Args) -> Self::Out;
 }
 
 pub trait Input: 'static {
@@ -105,18 +102,18 @@ impl Db {
         }
     }
 
-    fn new_memo<S>(
+    fn new_memo<Q>(
         memo_index: &MemoIndex,
         store: &mut Store,
-        make_args: impl FnOnce(MemoId) -> S::Args,
+        make_args: impl FnOnce(MemoId) -> Q::Args,
     ) -> MemoId
     where
-        S: Sig,
+        Q: Query,
     {
         let entry = MemoEntry::new();
         let raw_id = store.memo_entries.intern(entry);
         let memo_id = MemoId::from(raw_id);
-        memo_index.insert_memo::<S>(make_args(memo_id), memo_id);
+        memo_index.insert_memo::<Q>(make_args(memo_id), memo_id);
         memo_id
     }
 
@@ -126,40 +123,40 @@ impl Db {
 }
 
 impl MemoIndex {
-    fn insert_memo<S>(&self, args: S::Args, id: MemoId)
+    fn insert_memo<Q>(&self, args: Q::Args, id: MemoId)
     where
-        S: Sig,
+        Q: Query,
     {
         let mut index = self.0.write().unwrap();
         let memos_any = index
-            .entry(TypeId::of::<S>())
-            .or_insert_with(QueryMemosAny::new::<S>);
-        let QueryMemos(memos) = memos_any.downcast_mut::<S>();
+            .entry(TypeId::of::<Q>())
+            .or_insert_with(QueryMemosAny::new::<Q>);
+        let QueryMemos(memos) = memos_any.downcast_mut::<Q>();
         memos.insert(args, id);
     }
 
-    fn memo<S>(&self, args: &S::Args) -> Option<MemoId>
+    fn memo<Q>(&self, args: &Q::Args) -> Option<MemoId>
     where
-        S: Sig,
+        Q: Query,
     {
         let index = self.0.read().unwrap();
-        let memos_any = index.get(&TypeId::of::<S>())?;
-        let QueryMemos(memos) = memos_any.downcast::<S>();
+        let memos_any = index.get(&TypeId::of::<Q>())?;
+        let QueryMemos(memos) = memos_any.downcast::<Q>();
         memos.get(args).copied()
     }
 }
 
 impl QueryMemosAny {
-    fn new<S>() -> Self
+    fn new<Q>() -> Self
     where
-        S: Sig,
+        Q: Query,
     {
-        Self(Box::new(QueryMemos::<S>(HashMap::default())))
+        Self(Box::new(QueryMemos::<Q>(HashMap::default())))
     }
 
-    fn downcast<S>(&self) -> &QueryMemos<S>
+    fn downcast<Q>(&self) -> &QueryMemos<Q>
     where
-        S: Sig,
+        Q: Query,
     {
         match self.0.downcast_ref() {
             Some(this) => this,
@@ -167,9 +164,9 @@ impl QueryMemosAny {
         }
     }
 
-    fn downcast_mut<S>(&mut self) -> &mut QueryMemos<S>
+    fn downcast_mut<Q>(&mut self) -> &mut QueryMemos<Q>
     where
-        S: Sig,
+        Q: Query,
     {
         match self.0.downcast_mut() {
             Some(this) => this,
@@ -190,19 +187,19 @@ impl MemoEntry {
         self.state = state;
     }
 
-    fn set_value<S>(&mut self, value: S::Out)
+    fn set_value<Q>(&mut self, value: Q::Out)
     where
-        S: Sig,
+        Q: Query,
     {
-        self.value = Some(AnyMemoValue::new::<S>(value));
+        self.value = Some(AnyMemoValue::new::<Q>(value));
     }
 
-    fn value<S>(&self) -> Option<&S::Out>
+    fn value<Q>(&self) -> Option<&Q::Out>
     where
-        S: Sig,
+        Q: Query,
     {
         self.panic_if_cycle();
-        self.value.as_ref().map(AnyMemoValue::downcast::<S>)
+        self.value.as_ref().map(AnyMemoValue::downcast::<Q>)
     }
 
     fn panic_if_cycle(&self) {
@@ -213,16 +210,16 @@ impl MemoEntry {
 }
 
 impl AnyMemoValue {
-    fn new<S>(value: S::Out) -> Self
+    fn new<Q>(value: Q::Out) -> Self
     where
-        S: Sig,
+        Q: Query,
     {
         Self(Box::new(value))
     }
 
-    fn downcast<S>(&self) -> &S::Out
+    fn downcast<Q>(&self) -> &Q::Out
     where
-        S: Sig,
+        Q: Query,
     {
         match self.0.downcast_ref() {
             Some(this) => this,
@@ -235,15 +232,11 @@ impl<I> Query for I
 where
     I: Input,
 {
+    type Args = InputId<Self>;
+
+    type Out = <Self as Input>::Value;
+
     fn eval(_: &Db, _: &Self::Args) -> Self::Out {
         unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
-}
-
-impl<I> Sig for I
-where
-    I: Input,
-{
-    type Args = InputId<Self>;
-    type Out = <Self as Input>::Value;
 }

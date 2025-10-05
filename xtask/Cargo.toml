@@ -5,6 +5,7 @@ version = "0.0.0"
 
 [dependencies]
 anyhow.workspace = true
+append-only-vec = { version = "0.1.7", default-features = false }
 xflags.workspace = true
 xshell.workspace = true
 
