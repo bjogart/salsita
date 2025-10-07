@@ -652,7 +652,7 @@ where
 }
 
 impl Counts {
-    pub fn new(m: &PerfMetrics) -> Self {
+    fn new(m: &PerfMetrics) -> Self {
         Self {
             query: m.query_count(),
             eval: m.eval_count(),
@@ -661,7 +661,7 @@ impl Counts {
 }
 
 impl Timings {
-    pub fn new(m: &PerfMetrics) -> Self {
+    fn new(m: &PerfMetrics) -> Self {
         Self {
             query: m.query_time().as_nanos().try_into().unwrap_or(u64::MAX),
             eval: m.eval_time().as_nanos().try_into().unwrap_or(u64::MAX),

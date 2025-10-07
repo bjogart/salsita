@@ -11,18 +11,19 @@ use std::collections::HashMap;
 pub mod intern;
 pub mod metrics;
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct Db<M> {
     metrics: M,
     memo_index: MemoIndex,
     memo_entries: MemoEntries,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct MemoIndex {
     index: RefCell<HashMap<TypeId, PerQueryIndexAny>>,
 }
 
+#[derive(Debug)]
 struct PerQueryIndexAny {
     query_index: Box<dyn Any>,
 }
@@ -34,21 +35,24 @@ where
     query_index: RefCell<HashMap<Q::Args, MemoId>>,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct MemoEntries {
     entries: RefCell<Vec<RefCell<MemoEntry>>>,
 }
 
+#[derive(Debug)]
 struct MemoEntry {
     state: MemoState,
     value: Option<MemoValueAny>,
 }
 
+#[derive(Debug)]
 enum MemoState {
     InProgress,
     Ready,
 }
 
+#[derive(Debug)]
 struct MemoValueAny(Box<dyn Any>);
 
 pub trait Query: 'static {

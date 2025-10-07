@@ -25,60 +25,60 @@ fn cycles_panic() {
 
 #[test]
 fn star10() {
-    let _ = black_box(bench::star10::<1>());
+    black_box(bench::star10::<1>());
 }
 
 #[test]
 fn star30() {
-    let _ = black_box(bench::star30::<1>());
+    black_box(bench::star30::<1>());
 }
 
 #[test]
 fn star100() {
-    let _ = black_box(bench::star100::<1>());
+    black_box(bench::star100::<1>());
 }
 
 #[test]
 fn chain5() {
-    let _ = black_box(bench::chain5::<1>());
+    black_box(bench::chain5::<1>());
 }
 
 #[test]
 fn chain25() {
-    let _ = black_box(bench::chain25::<1>());
+    black_box(bench::chain25::<1>());
 }
 
 #[test]
 fn chain100() {
-    let _ = black_box(bench::chain100::<1>());
+    black_box(bench::chain100::<1>());
 }
 
 #[test]
 fn tree_k3d2() {
-    let _ = black_box(bench::tree_k3d2::<1>());
+    black_box(bench::tree_k3d2::<1>());
 }
 
 #[test]
 fn tree_k3d3() {
-    let _ = black_box(bench::tree_k3d3::<1>());
+    black_box(bench::tree_k3d3::<1>());
 }
 
 #[test]
 fn tree_k3d4() {
-    let _ = black_box(bench::tree_k3d4::<1>());
+    black_box(bench::tree_k3d4::<1>());
 }
 
 #[test]
 fn hourglass3() {
-    let _ = black_box(bench::hourglass3::<1>());
+    black_box(bench::hourglass3::<1>());
 }
 
 #[test]
 fn hourglass6() {
-    let _ = black_box(bench::hourglass6::<1>());
+    black_box(bench::hourglass6::<1>());
 }
 
 #[test]
 fn hourglass9() {
-    let _ = black_box(bench::hourglass9::<1>());
+    black_box(bench::hourglass9::<1>());
 }
