@@ -40,21 +40,6 @@ pub struct AtomicDuration {
     ns: AtomicU64,
 }
 
-impl PerfMetrics {
-    pub fn reset(&self) {
-        let Self {
-            query_time,
-            eval_time,
-            query_count,
-            eval_count,
-        } = self;
-        query_time.reset();
-        eval_time.reset();
-        query_count.store(0, Ordering::Relaxed);
-        eval_count.store(0, Ordering::Relaxed);
-    }
-}
-
 impl Metrics for PerfMetrics {
     type QueryGuard = Instant;
 
@@ -92,6 +77,19 @@ impl Metrics for PerfMetrics {
 }
 
 impl PerfMetrics {
+    pub fn reset(&self) {
+        let Self {
+            query_time,
+            eval_time,
+            query_count,
+            eval_count,
+        } = self;
+        query_time.reset();
+        eval_time.reset();
+        query_count.store(0, Ordering::Relaxed);
+        eval_count.store(0, Ordering::Relaxed);
+    }
+
     pub fn query_time(&self) -> Duration {
         self.query_time.duration()
     }

@@ -10,8 +10,6 @@ use std::collections::HashMap;
 
 pub mod intern;
 pub mod metrics;
-#[cfg(test)]
-mod tests;
 
 #[derive(Default)]
 pub struct Db<M> {

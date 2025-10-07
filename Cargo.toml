@@ -6,7 +6,7 @@ lto = "fat"
 strip = "debuginfo"
 
 [workspace]
-members = ["xtask", "salsita"]
+members = ["xtask", "salsita", "salsita_test"]
 resolver = "3"
 
 [workspace.package]
@@ -14,6 +14,14 @@ edition = "2024"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.98", default-features = false }
+salsita = { path = "salsita", default-features = false }
+serde = { version = "1.0.228", default-features = false, features = [
+  "derive",
+  "std",
+] }
+serde_json = { version = "1.0.145", default-features = false, features = [
+  "alloc",
+] }
 xflags = { version = "0.3.2", default-features = false }
 xshell = { version = "0.2.7", default-features = false }
 
