@@ -1,6 +1,6 @@
 mod bench;
 #[cfg(test)]
-mod test;
+mod tests;
 
 mod flags {
     xflags::xflags! {
