@@ -1,5 +1,5 @@
 use crate::Input;
-use core::cmp;
+use core::cmp::Ordering;
 use core::fmt;
 use core::hash;
 use core::marker::PhantomData;
@@ -20,7 +20,7 @@ impl<I> InputId<I>
 where
     I: Input,
 {
-    pub(crate) fn memo_id(self) -> MemoId {
+    pub(crate) const fn memo_id(self) -> MemoId {
         self.0
     }
 }
@@ -39,7 +39,7 @@ where
     I: Input,
 {
     fn clone(&self) -> Self {
-        Self(self.0, PhantomData)
+        *self
     }
 }
 
@@ -50,7 +50,9 @@ where
     I: Input,
 {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        let Self(self_id, self_marker) = self;
+        let Self(other_id, other_marker) = other;
+        self_id == other_id && self_marker == other_marker
     }
 }
 
@@ -60,8 +62,8 @@ impl<I> PartialOrd for InputId<I>
 where
     I: Input,
 {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.0.partial_cmp(&other.0)
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -69,8 +71,10 @@ impl<I> Ord for InputId<I>
 where
     I: Input,
 {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.0.cmp(&other.0)
+    fn cmp(&self, other: &Self) -> Ordering {
+        let Self(self_id, self_marker) = self;
+        let Self(other_id, other_marker) = other;
+        self_id.cmp(other_id).then(self_marker.cmp(other_marker))
     }
 }
 
@@ -79,8 +83,9 @@ where
     I: Input,
 {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        self.0.hash(state);
-        self.1.hash(state);
+        let Self(id, marker) = self;
+        id.hash(state);
+        marker.hash(state);
     }
 }
 
@@ -89,15 +94,16 @@ where
     I: Input,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(id, marker) = self;
         f.debug_struct("InputId")
-            .field("idx", &self.0)
-            .field("marker", &self.1)
+            .field("id", &id)
+            .field("marker", &marker)
             .finish()
     }
 }
 
 impl MemoId {
-    pub(crate) fn idx(self) -> usize {
+    pub(crate) const fn idx(self) -> usize {
         self.0.idx()
     }
 }
@@ -109,11 +115,11 @@ impl From<RawId> for MemoId {
 }
 
 impl RawId {
-    pub(crate) fn new(idx: usize) -> Self {
+    pub(crate) const fn new(idx: usize) -> Self {
         Self { idx }
     }
 
-    pub(crate) fn idx(self) -> usize {
+    pub(crate) const fn idx(self) -> usize {
         self.idx
     }
 }

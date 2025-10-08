@@ -72,7 +72,7 @@ impl<M> Db<M>
 where
     M: Metrics,
 {
-    pub fn metrics(&mut self) -> &mut M {
+    pub const fn metrics(&mut self) -> &mut M {
         &mut self.metrics
     }
 
@@ -99,10 +99,10 @@ where
     {
         let query_guard = self.metrics.enter_query::<Q>(args);
         let memo_id = self.get_or_alloc_memo::<Q>(args);
-        let out = match self.memo_entries.memo_value::<Q>(memo_id) {
-            Some(value) => value,
-            None => self.compute_memo::<Q>(memo_id, args),
-        };
+        let out = self
+            .memo_entries
+            .memo_value::<Q>(memo_id)
+            .unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
         self.metrics.exit_query::<Q>(query_guard, args, &out);
         out
     }
@@ -125,10 +125,9 @@ where
     where
         Q: Query,
     {
-        match self.memo_index.memo::<Q>(args) {
-            None => self.new_memo::<Q>(|_| args.clone()),
-            Some(memo_id) => memo_id,
-        }
+        self.memo_index
+            .memo::<Q>(args)
+            .unwrap_or_else(|| self.new_memo::<Q>(|_| args.clone()))
     }
 
     fn new_memo<Q>(&self, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
@@ -183,10 +182,9 @@ impl PerQueryIndexAny {
     where
         Q: Query,
     {
-        match self.query_index.downcast_ref() {
-            Some(this) => this,
-            None => panic!("type cast failed"),
-        }
+        self.query_index
+            .downcast_ref()
+            .unwrap_or_else(|| panic!("type cast failed"))
     }
 }
 
@@ -202,15 +200,17 @@ impl MemoEntries {
     where
         Q: Query,
     {
-        let entries = self.entries.borrow();
-        let mut entry = entries.get(id.idx()).unwrap().borrow_mut();
-        entry.value = Some(MemoValueAny::new::<Q>(value));
+        if let Some(entry) = self.entries.borrow().get(id.idx()) {
+            let mut entry = entry.borrow_mut();
+            entry.value = Some(MemoValueAny::new::<Q>(value));
+        }
     }
 
     fn update_memo_state(&self, id: MemoId, state: MemoState) {
-        let entries = self.entries.borrow();
-        let mut entry = entries.get(id.idx()).unwrap().borrow_mut();
-        entry.state = state
+        if let Some(entry) = self.entries.borrow().get(id.idx()) {
+            let mut entry = entry.borrow_mut();
+            entry.state = state
+        }
     }
 
     fn memo_value<Q>(&self, id: MemoId) -> Option<Q::Out>
@@ -218,7 +218,7 @@ impl MemoEntries {
         Q: Query,
     {
         let entries = self.entries.borrow();
-        let entry = entries.get(id.idx()).unwrap().borrow();
+        let entry = entries.get(id.idx())?.borrow();
         entry.panic_on_cycle();
         entry
             .value
@@ -229,7 +229,7 @@ impl MemoEntries {
 }
 
 impl MemoEntry {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             state: MemoState::Ready,
             value: None,
@@ -237,7 +237,7 @@ impl MemoEntry {
     }
 
     fn panic_on_cycle(&self) {
-        if let MemoState::InProgress = self.state {
+        if matches!(self.state, MemoState::InProgress) {
             panic!("cycle detected")
         }
     }
@@ -255,10 +255,9 @@ impl MemoValueAny {
     where
         Q: Query,
     {
-        match self.0.downcast_ref() {
-            Some(this) => this,
-            None => panic!("type cast failed"),
-        }
+        self.0
+            .downcast_ref()
+            .unwrap_or_else(|| panic!("type cast failed"))
     }
 }
 
@@ -274,6 +273,6 @@ where
     where
         M: Metrics,
     {
-        unimplemented!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
+        panic!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
 }

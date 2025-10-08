@@ -1,4 +1,5 @@
 use core::fmt;
+use core::iter;
 use macros::Add3;
 use macros::Add6;
 use macros::Add9;
@@ -135,6 +136,8 @@ use salsita::Query;
 use salsita::metrics::PerfMetrics;
 
 mod macros;
+
+const WARMUP_COUNT: usize = 3;
 
 #[derive(serde::Serialize)]
 pub(crate) struct Report {
@@ -622,17 +625,17 @@ fn bench_scenario<const N: usize, Inp, Out>(
 where
     Out: Copy + Eq + fmt::Debug,
 {
-    let (_, counts, out) = bench_iter(&init, &bench);
+    let (_, counts, out) = bench_iter(init, bench);
     assert_eq!(out, exp);
-    for _ in 0..3 {
-        let (_, _, _) = bench_iter(&init, &bench);
+    for _ in 0..WARMUP_COUNT {
+        let (_, _, _) = bench_iter(init, bench);
     }
-    let timings = (0..N)
-        .map(|_| {
-            let (timings, _, _) = bench_iter(init, bench);
-            timings
-        })
-        .collect();
+    let timings = iter::repeat_with(|| {
+        let (timings, _, _) = bench_iter(init, bench);
+        timings
+    })
+    .take(N)
+    .collect();
     return ScenarioMetrics { counts, timings };
 
     fn bench_iter<T, Out>(

@@ -15,7 +15,12 @@ fn main() {
     match subcommand {
         flags::SalsitaCmd::Bench(flags::Bench {}) => {
             let report = bench::Report::new::<20>();
-            println!("{}", serde_json::to_value(report).unwrap());
+            match serde_json::to_value(report) {
+                Ok(json) => {
+                    println!("{json}")
+                }
+                Err(err) => panic!("serialization error: {err}"),
+            }
         }
     }
 }

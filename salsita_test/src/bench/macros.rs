@@ -17,7 +17,6 @@ macro_rules! impl_dep {
     ($name:ident { input: $input:ident, deps: [$($dep:ident),*$(,)?]$(,)? }$(,)?) => {
         pub(crate) struct $name<O, $($dep,)*>(PhantomData<(O, $($dep),*)>);
 
-        #[allow(unused_parens)]
         impl<O, $($dep,)*> Query for $name<O, $($dep,)*>
         where
             O: Op<Args = $input<$($dep::Out),*>>,

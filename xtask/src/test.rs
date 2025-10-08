@@ -10,8 +10,7 @@ impl flags::Test {
         // TODO remove
         cmd!(sh, "cargo run --package salsita").run()?;
         cmd!(sh, "cargo test --package salsita_test").run()?;
-        // TODO enable
-        // cmd!(sh, "cargo clippy --workspace -- -D warnings").run()?;
+        cmd!(sh, "cargo clippy --workspace -- -D warnings").run()?;
         cmd!(sh, "taplo fmt").run()?;
 
         Ok(())

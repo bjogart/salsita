@@ -132,28 +132,24 @@ impl Metrics for () {
     where
         Q: Query,
     {
-        ()
     }
 
-    fn exit_query<Q>(&self, _: Self::QueryGuard, _: &Q::Args, _: &Q::Out)
+    fn exit_query<Q>(&self, (): Self::QueryGuard, _: &Q::Args, _: &Q::Out)
     where
         Q: Query,
     {
-        ()
     }
 
     fn enter_eval<Q>(&self, _: &Q::Args) -> Self::EvalGuard
     where
         Q: Query,
     {
-        ()
     }
 
-    fn exit_eval<Q>(&self, _: Self::EvalGuard, _: &Q::Args, _: &Q::Out)
+    fn exit_eval<Q>(&self, (): Self::EvalGuard, _: &Q::Args, _: &Q::Out)
     where
         Q: Query,
     {
-        ()
     }
 }
 
