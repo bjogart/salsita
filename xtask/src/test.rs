@@ -7,8 +7,6 @@ impl flags::Test {
         let Self {} = self;
 
         cmd!(sh, "cargo fmt --all").run()?;
-        // TODO remove
-        cmd!(sh, "cargo run --package salsita").run()?;
         cmd!(sh, "cargo test --package salsita_test").run()?;
         cmd!(sh, "cargo clippy --workspace -- -D warnings").run()?;
         cmd!(sh, "taplo fmt").run()?;
