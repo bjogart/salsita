@@ -1,16 +1,11 @@
-[profile.release]
-codegen-units = 1
-debug = "line-tables-only"
-incremental = true
-lto = "fat"
-strip = "debuginfo"
-
 [workspace]
 members = ["xtask", "salsita", "salsita_test"]
 resolver = "3"
 
 [workspace.package]
+authors = ["Jasper van den Bogart"]
 edition = "2024"
+license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.98", default-features = false }
@@ -24,6 +19,13 @@ serde_json = { version = "1.0.145", default-features = false, features = [
 ] }
 xflags = { version = "0.3.2", default-features = false }
 xshell = { version = "0.2.7", default-features = false }
+
+[profile.release]
+codegen-units = 1
+debug = "line-tables-only"
+incremental = true
+lto = "fat"
+strip = "debuginfo"
 
 [workspace.lints.rust]
 absolute-paths-not-starting-with-crate = "warn"
