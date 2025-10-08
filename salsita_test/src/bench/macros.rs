@@ -3,9 +3,9 @@
 use core::hash;
 use core::marker::PhantomData;
 use salsita::Db;
-use salsita::Input;
-use salsita::Query;
 use salsita::metrics::Metrics;
+use salsita::query::Input;
+use salsita::query::Query;
 
 pub(crate) trait Op: 'static {
     type Args: Clone + Eq + hash::Hash;

@@ -2,14 +2,16 @@ use crate::intern::InputId;
 use crate::intern::MemoId;
 use crate::intern::RawId;
 use crate::metrics::Metrics;
+use crate::query::Input;
+use crate::query::Query;
 use core::any::Any;
 use core::any::TypeId;
 use core::cell::RefCell;
-use core::hash::Hash;
 use std::collections::HashMap;
 
 pub mod intern;
 pub mod metrics;
+pub mod query;
 
 #[derive(Debug, Default)]
 pub struct Db<M> {
@@ -54,19 +56,6 @@ enum MemoState {
 
 #[derive(Debug)]
 struct MemoValueAny(Box<dyn Any>);
-
-pub trait Query: 'static {
-    type Args: Clone + Eq + Hash;
-    type Out: Clone;
-
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
-    where
-        M: Metrics;
-}
-
-pub trait Input: 'static {
-    type Value: Clone;
-}
 
 impl<M> Db<M>
 where
@@ -258,21 +247,5 @@ impl MemoValueAny {
         self.0
             .downcast_ref()
             .unwrap_or_else(|| panic!("type cast failed"))
-    }
-}
-
-impl<I> Query for I
-where
-    I: Input,
-{
-    type Args = InputId<Self>;
-
-    type Out = <Self as Input>::Value;
-
-    fn eval<M>(_: &Db<M>, _: &Self::Args) -> Self::Out
-    where
-        M: Metrics,
-    {
-        panic!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
 }

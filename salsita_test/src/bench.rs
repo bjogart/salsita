@@ -132,8 +132,8 @@ use macros::Tuple27;
 use macros::Tuple30;
 use macros::Tuple100;
 use salsita::Db;
-use salsita::Query;
 use salsita::metrics::PerfMetrics;
+use salsita::query::Query;
 
 mod macros;
 

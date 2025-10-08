@@ -1,10 +1,10 @@
 use core::fmt;
 use salsita::Db;
-use salsita::Input;
-use salsita::Query;
 use salsita::intern::InputId;
 use salsita::metrics::Metrics;
 use salsita::metrics::PerfMetrics;
+use salsita::query::Input;
+use salsita::query::Query;
 
 #[test]
 fn db_is_initialized_empty() {
