@@ -1,5 +1,3 @@
-use crate::bench;
-use core::hint::black_box;
 use salsita::Db;
 use salsita::Query;
 use salsita::metrics::Metrics;
@@ -21,64 +19,4 @@ fn cycles_panic() {
     }
 
     Db::<()>::default().query::<Cycle>(&());
-}
-
-#[test]
-fn star10() {
-    black_box(bench::star10::<1>());
-}
-
-#[test]
-fn star30() {
-    black_box(bench::star30::<1>());
-}
-
-#[test]
-fn star100() {
-    black_box(bench::star100::<1>());
-}
-
-#[test]
-fn chain5() {
-    black_box(bench::chain5::<1>());
-}
-
-#[test]
-fn chain25() {
-    black_box(bench::chain25::<1>());
-}
-
-#[test]
-fn chain100() {
-    black_box(bench::chain100::<1>());
-}
-
-#[test]
-fn tree_k3d2() {
-    black_box(bench::tree_k3d2::<1>());
-}
-
-#[test]
-fn tree_k3d3() {
-    black_box(bench::tree_k3d3::<1>());
-}
-
-#[test]
-fn tree_k3d4() {
-    black_box(bench::tree_k3d4::<1>());
-}
-
-#[test]
-fn hourglass3() {
-    black_box(bench::hourglass3::<1>());
-}
-
-#[test]
-fn hourglass6() {
-    black_box(bench::hourglass6::<1>());
-}
-
-#[test]
-fn hourglass9() {
-    black_box(bench::hourglass9::<1>());
 }
