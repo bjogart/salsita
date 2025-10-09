@@ -1,0 +1,24 @@
+name: run-tests
+
+on:
+  pull_request:
+
+jobs:
+  bench-upload:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: test-${{ github.ref }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install taplo
+        run: cargo install --locked taplo-cli
+
+      - name: Run tests
+        run: cargo xtask test
