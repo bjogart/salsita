@@ -6,7 +6,7 @@ on:
       - trunk
 
 jobs:
-  bench-upload:
+  run-tests:
     runs-on: ubuntu-latest
     concurrency:
       group: test-${{ github.ref }}
