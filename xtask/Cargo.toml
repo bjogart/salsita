@@ -1,9 +1,10 @@
 [package]
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
 name = "xtask"
+description = "Salsita's build scripts"
 version = "0.0.0"
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
