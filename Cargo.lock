@@ -49,13 +49,12 @@ name = "salsita"
 version = "0.1.0"
 
 [[package]]
-name = "salsita_test"
+name = "salsita_bench"
 version = "0.0.0"
 dependencies = [
  "salsita",
  "serde",
  "serde_json",
- "xflags",
 ]
 
 [[package]]

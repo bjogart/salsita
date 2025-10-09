@@ -2,14 +2,13 @@
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
-name = "salsita_test"
+name = "salsita_bench"
 version = "0.0.0"
 
 [dependencies]
 salsita.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-xflags.workspace = true
 
 [lints]
 workspace = true
