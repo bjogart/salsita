@@ -9,7 +9,7 @@ impl flags::Test {
         cmd!(sh, "cargo fmt --all --check").run()?;
         cmd!(sh, "cargo test --workspace").run()?;
         cmd!(sh, "cargo clippy --workspace -- -D warnings").run()?;
-        cmd!(sh, "taplo fmt").run()?;
+        cmd!(sh, "taplo fmt --check").run()?;
 
         Ok(())
     }
