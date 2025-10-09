@@ -6,7 +6,6 @@ impl flags::Bench {
     pub(crate) fn run(self, sh: &Shell) -> anyhow::Result<()> {
         let Self {} = self;
 
-        // TODO store benchmark results in repo
         cmd!(sh, "cargo run --release --package salsita_test bench").run()?;
 
         Ok(())
