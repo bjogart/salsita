@@ -1,4 +1,4 @@
-name: run-tests
+name: pass-test-suite
 
 on:
   pull_request:
@@ -6,7 +6,7 @@ on:
       - trunk
 
 jobs:
-  run-tests:
+  pass-test-suite:
     runs-on: ubuntu-latest
     concurrency:
       group: test-${{ github.ref }}

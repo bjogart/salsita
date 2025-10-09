@@ -1,4 +1,4 @@
-name: upload-bench-artifact
+name: upload-benchmark-results
 
 on:
   push:
@@ -6,10 +6,10 @@ on:
       - trunk
 
 jobs:
-  bench-upload:
+  upload-benchmark-results:
     runs-on: ubuntu-latest
     concurrency:
-      group: bench-upload-${{ github.ref }}
+      group: upload-benchmark-results-${{ github.ref }}
       cancel-in-progress: true
 
     steps:
