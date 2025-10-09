@@ -33,10 +33,10 @@ jobs:
               exit 1
               ;;
           esac
-          curl -Ls "https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-${RUNNER_ARCH}.gz" | \
-          gzip -d > taplo && \
-          chmod +x taplo && \
-          sudo mv taplo "/usr/local/bin/taplo"
+          curl --location --silent "https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-${RUNNER_ARCH}.gz" | \
+            gzip --decompress > taplo && \
+            chmod +x taplo && \
+            sudo mv taplo "/usr/local/bin/taplo"
 
       - name: Run tests
         run: cargo xtask test
