@@ -12,6 +12,8 @@ use std::collections::HashMap;
 pub mod intern;
 pub mod metrics;
 pub mod query;
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug, Default)]
 pub struct Db<M> {

@@ -1,10 +1,10 @@
+use crate::Db;
+use crate::intern::InputId;
+use crate::metrics::Metrics;
+use crate::metrics::PerfMetrics;
+use crate::query::Input;
+use crate::query::Query;
 use core::fmt;
-use salsita::Db;
-use salsita::intern::InputId;
-use salsita::metrics::Metrics;
-use salsita::metrics::PerfMetrics;
-use salsita::query::Input;
-use salsita::query::Query;
 
 #[test]
 fn db_is_initialized_empty() {
