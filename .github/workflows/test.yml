@@ -16,11 +16,27 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Install stable Rust toolchain
+      - name: Setup stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install taplo
-        run: cargo install --locked taplo-cli
+      - name: Setup taplo
+        run: |
+          case "${{ runner.arch }}" in
+            "X86" | "X64")
+              RUNNER_ARCH="x86_64"
+              ;;
+            "ARM64")
+              RUNNER_ARCH="aarch64"
+              ;;
+            *)
+              echo "Unsupported architecture"
+              exit 1
+              ;;
+          esac
+          curl -Ls "https://github.com/tamasfe/taplo/releases/latest/download/taplo-linux-${RUNNER_ARCH}.gz" | \
+          gzip -d > taplo && \
+          chmod +x taplo && \
+          sudo mv taplo "/usr/local/bin/taplo"
 
       - name: Run tests
         run: cargo xtask test
