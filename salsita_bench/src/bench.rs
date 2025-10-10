@@ -138,41 +138,12 @@ use salsita::query::Query;
 const WARMUP_COUNT: usize = 3;
 
 #[derive(serde::Serialize)]
-pub(crate) struct Report {
-    /// Star-shaped graph variants (single input -> many dependents). `starN`
-    /// means one input node feeds N dependent nodes (fanout = N).
-    ///
-    /// This is useful to stress fanout and reveal invalidation cost when a
-    /// single input change causes re-evaluation of many dependents.
-    star10: GraphMetrics,
-    star30: GraphMetrics,
-    star100: GraphMetrics,
-    /// Chain-shaped graph variants `(A -> B -> C -> ...)`. `chainN` denotes a
-    /// linear chain of N distinct queries where each node depends on the
-    /// previous node.
-    ///
-    /// This exercises propagation through long narrow dependency paths and
-    /// exposes per-level recursion/overhead.
-    chain5: GraphMetrics,
-    chain25: GraphMetrics,
-    chain100: GraphMetrics,
-    /// Balanced k-ary trees of small depth. `tree_kKdD` is a K-ary tree of
-    /// depth D. These combine branching and depth in a controlled manner.
-    ///
-    /// These represents hierarchical graphs (such as AST / module dependency
-    /// shapes). Useful to measure bulk recomputation costs when internal nodes
-    /// invalidate whole subtrees.
-    tree_k3d2: GraphMetrics,
-    tree_k3d3: GraphMetrics,
-    tree_k3d4: GraphMetrics,
-    /// Hourglass-shaped graph. `hourglassN` means N inputs converge into a
-    /// single intermediate region and then diverge again into N outputs.
-    ///
-    /// This kind of graph stresses shared subexpressions and reuse. A correct
-    /// incremental engine should compute the shared region once and reuse it.
-    hourglass3: GraphMetrics,
-    hourglass6: GraphMetrics,
-    hourglass9: GraphMetrics,
+pub(crate) struct Report(Vec<BenchReport>);
+
+#[derive(serde::Serialize)]
+pub(crate) struct BenchReport {
+    name: String,
+    metrics: GraphMetrics,
 }
 
 #[derive(serde::Serialize)]
@@ -260,6 +231,11 @@ struct Timings {
 
 type Branch<O> = Dep1<O, Inp>;
 
+/// Star-shaped graph variants (single input -> many dependents). `starN`
+    /// means one input node feeds N dependent nodes (fanout = N).
+    ///
+    /// This is useful to stress fanout and reveal invalidation cost when a
+    /// single input change causes re-evaluation of many dependents.
 #[rustfmt::skip]
  type Star10 = Sink10<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>>;
 
@@ -275,6 +251,12 @@ type Link5<D> = Link<Link<Link<Link<Link<D>>>>>;
 
 type Link25<D> = Link5<Link5<Link5<Link5<Link5<D>>>>>;
 
+/// Chain-shaped graph variants `(A -> B -> C -> ...)`. `chainN` denotes a
+/// linear chain of N distinct queries where each node depends on the
+/// previous node.
+///
+/// This exercises propagation through long narrow dependency paths and
+/// exposes per-level recursion/overhead.
 type Chain5 = Link5<Inp>;
 
 type Chain25 = Link25<Inp>;
@@ -363,6 +345,12 @@ type TreeD3I26 = Tree<Inc1V38, TreeD2I9>;
 
 type TreeD3I27 = Tree<Inc1V39, TreeD2I9>;
 
+/// Balanced k-ary trees of small depth. `tree_kKdD` is a K-ary tree of
+/// depth D. These combine branching and depth in a controlled manner.
+///
+/// These represents hierarchical graphs (such as AST / module dependency
+/// shapes). Useful to measure bulk recomputation costs when internal nodes
+/// invalidate whole subtrees.
 type TreeK3D2 = Sink3<TreeD1I1, TreeD1I2, TreeD1I3>;
 
 #[rustfmt::skip]
@@ -384,6 +372,11 @@ type FanOut<O, H> = Dep1<O, H>;
 #[rustfmt::skip]
  type Hub9 = Dep9<Add9, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>, FanIn<Inp7>, FanIn<Inp8>, FanIn<Inp9>>;
 
+/// Hourglass-shaped graph. `hourglassN` means N inputs converge into a
+    /// single intermediate region and then diverge again into N outputs.
+    ///
+    /// This kind of graph stresses shared subexpressions and reuse. A correct
+    /// incremental engine should compute the shared region once and reuse it.
 #[rustfmt::skip]
  type Hourglass3 = Sink3<FanOut<Inc1, Hub3>, FanOut<Inc1V2, Hub3>, FanOut<Inc1V3, Hub3>>;
 
@@ -395,26 +388,26 @@ type FanOut<O, H> = Dep1<O, H>;
 
 impl Report {
     pub(crate) fn new<const N: usize>() -> Self {
-        Self {
-            star10: star10::<N>(),
-            star30: star30::<N>(),
-            star100: star100::<N>(),
-            chain5: chain5::<N>(),
-            chain25: chain25::<N>(),
-            chain100: chain100::<N>(),
-            tree_k3d2: tree_k3d2::<N>(),
-            tree_k3d3: tree_k3d3::<N>(),
-            tree_k3d4: tree_k3d4::<N>(),
-            hourglass3: hourglass3::<N>(),
-            hourglass6: hourglass6::<N>(),
-            hourglass9: hourglass9::<N>(),
-        }
+        Self(vec![
+            star10::<N>(),
+            star30::<N>(),
+            star100::<N>(),
+            chain5::<N>(),
+            chain25::<N>(),
+            chain100::<N>(),
+            tree_k3d2::<N>(),
+            tree_k3d3::<N>(),
+            tree_k3d4::<N>(),
+            hourglass3::<N>(),
+            hourglass6::<N>(),
+            hourglass9::<N>(),
+        ])
     }
 }
 
 #[rustfmt::skip]
-pub(crate) fn star10<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Star10>(
+pub(crate) fn star10<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Star10>(
         |db| {
             let inp = db.new_input::<Inp>(1);
             Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -422,12 +415,13 @@ pub(crate) fn star10<const N: usize>() -> GraphMetrics {
         |db, Tuple10(inp, _, _, _, _, _, _, _, _, _)| db.set_input(*inp, 2),
         20,
         30,
-    )
+    );
+    BenchReport::new("star10", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn star30<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Star30>(
+pub(crate) fn star30<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Star30>(
         |db| {
             let inp = db.new_input::<Inp>(1);
             Tuple30(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -436,12 +430,13 @@ pub(crate) fn star30<const N: usize>() -> GraphMetrics {
          Tuple30(inp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _)| db.set_input(*inp, 2),
         60,
         90,
-    )
+    );
+    BenchReport::new("star30", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn star100<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Star100>(
+pub(crate) fn star100<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Star100>(
         |db| {
             let inp = db.new_input::<Inp>(1);
             Tuple100(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -450,42 +445,46 @@ pub(crate) fn star100<const N: usize>() -> GraphMetrics {
          Tuple100(inp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _,_,_,_)| db.set_input(*inp, 2),
         200,
         300,
-    )
+    );
+    BenchReport::new("star100", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn chain5<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Chain5>(
+pub(crate) fn chain5<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Chain5>(
         |db| db.new_input::<Inp>(0),
         |db, inp| db.set_input(*inp, 1),
         5,
         6,
-    )
+    );
+    BenchReport::new("chain5", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn chain25<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Chain25>(
+pub(crate) fn chain25<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Chain25>(
         |db| db.new_input::<Inp>(0),
         |db, inp| db.set_input(*inp, 1),
         25,
         26,
-    )
+    );
+    BenchReport::new("chain25", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn chain100<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Chain100>(
+pub(crate) fn chain100<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Chain100>(
         |db| db.new_input::<Inp>(0),
         |db, inp| db.set_input(*inp, 1),
         100,
         101,
-    )
+    );
+    BenchReport::new("chain100", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn tree_k3d2<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, TreeK3D2>(
+pub(crate) fn tree_k3d2<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, TreeK3D2>(
         |db| {
             let inp = db.new_input::<Inp>(0);
             Tuple3(inp, inp, inp)
@@ -493,12 +492,13 @@ pub(crate) fn tree_k3d2<const N: usize>() -> GraphMetrics {
         |db, Tuple3(inp, _, _)| db.set_input(*inp, 1),
         3,
         6,
-    )
+    );
+    BenchReport::new("tree_k3d2", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn tree_k3d3<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, TreeK3D3>(
+pub(crate) fn tree_k3d3<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, TreeK3D3>(
         |db| {
             let inp = db.new_input::<Inp>(0);
             Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -506,12 +506,13 @@ pub(crate) fn tree_k3d3<const N: usize>() -> GraphMetrics {
         |db, Tuple9(inp, _, _, _, _, _, _, _, _)| db.set_input(*inp, 1),
         18,
         27,
-    )
+    );
+    BenchReport::new("tree_k3d3", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn tree_k3d4<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, TreeK3D4>(
+pub(crate) fn tree_k3d4<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, TreeK3D4>(
         |db| {
             let inp = db.new_input::<Inp>(0);
             Tuple27(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -520,12 +521,13 @@ pub(crate) fn tree_k3d4<const N: usize>() -> GraphMetrics {
          Tuple27(inp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _)| { db.set_input(*inp, 1) },
         81,
         108,
-    )
+    );
+    BenchReport::new("tree_k3d4", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn hourglass3<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Hourglass3>(
+pub(crate) fn hourglass3<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Hourglass3>(
         |db| {
             let inp = Tuple3(db.new_input::<Inp>(2), db.new_input::<Inp2>(1), db.new_input::<Inp3>(1));
             Tuple3(inp, inp, inp)
@@ -536,12 +538,13 @@ pub(crate) fn hourglass3<const N: usize>() -> GraphMetrics {
         },
         24,
         24,
-    )
+    );
+    BenchReport::new("hourglass3", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn hourglass6<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Hourglass6>(
+pub(crate) fn hourglass6<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Hourglass6>(
         |db| {
             let inp = Tuple6(db.new_input::<Inp>(2), db.new_input::<Inp2>(1), db.new_input::<Inp3>(1), db.new_input::<Inp4>(1), db.new_input::<Inp5>(1), db.new_input::<Inp6>(1));
             Tuple6(inp, inp, inp, inp, inp, inp)
@@ -552,12 +555,13 @@ pub(crate) fn hourglass6<const N: usize>() -> GraphMetrics {
         },
         84,
         84,
-    )
+    );
+    BenchReport::new("hourglass6", metrics)
 }
 
 #[rustfmt::skip]
-pub(crate) fn hourglass9<const N: usize>() -> GraphMetrics {
-    bench_graph::<N, Hourglass9>(
+pub(crate) fn hourglass9<const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<N, Hourglass9>(
         |db| {
             let inp = Tuple9(db.new_input::<Inp>(2), db.new_input::<Inp2>(1), db.new_input::<Inp3>(1), db.new_input::<Inp4>(1), db.new_input::<Inp5>(1), db.new_input::<Inp6>(1), db.new_input::<Inp7>(1), db.new_input::<Inp8>(1), db.new_input::<Inp9>(1));
             Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -569,7 +573,17 @@ pub(crate) fn hourglass9<const N: usize>() -> GraphMetrics {
         },
         180,
         180,
-    )
+    );
+    BenchReport::new("hourglass9", metrics)
+}
+
+impl BenchReport {
+    fn new(name: &'static str, metrics: GraphMetrics) -> Self {
+        Self {
+            name: name.to_owned(),
+            metrics,
+        }
+    }
 }
 
 fn bench_graph<const N: usize, Sink>(
