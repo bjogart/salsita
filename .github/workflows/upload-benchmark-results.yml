@@ -45,7 +45,7 @@ jobs:
                commit_sha: $sha,
                commit_date: $date,
                commit_title: $title,
-               result: $result[0]
+               results: $result[0]
              }' > "$OUT_FILE"
 
       - name: Upload benchmark artifact
