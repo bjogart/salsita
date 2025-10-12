@@ -18,9 +18,10 @@ mod tests;
 
 #[derive(Debug, Default)]
 pub struct Db<M> {
-    metrics: M,
     memo_index: MemoIndex,
     memo_entries: MemoEntries,
+    active_queries: ActiveQueryStack,
+    metrics: M,
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +48,7 @@ struct MemoEntries {
 
 #[derive(Debug)]
 struct MemoEntry {
+    deps: Vec<MemoId>,
     state: MemoState,
     value: Option<MemoValueAny>,
 }
@@ -59,6 +61,11 @@ enum MemoState {
 
 #[derive(Debug)]
 struct MemoValueAny(Box<dyn Any>);
+
+#[derive(Debug, Default)]
+struct ActiveQueryStack {
+    ids: RefCell<Vec<MemoId>>,
+}
 
 impl<M> Db<M>
 where
@@ -92,23 +99,33 @@ where
     {
         let query_guard = self.metrics.enter_query::<Q>(args);
         let memo_id = self.get_or_alloc_memo::<Q>(args);
-        let out = self
-            .memo_entries
-            .entry(memo_id, MemoEntry::value::<Q>)
-            .unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
+        self.register_parent_dep(memo_id);
+        let memo_value = self.memo_entries.entry(memo_id, MemoEntry::value::<Q>);
+        let out = memo_value.unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
         self.metrics.exit_query::<Q>(query_guard, args, &out);
         out
+    }
+
+    fn register_parent_dep(&self, memo_id: MemoId) {
+        if let Some(caller) = self.active_queries.active_query() {
+            self.memo_entries
+                .entry_mut(caller, |entry| entry.register_dep(memo_id));
+        }
     }
 
     fn compute_memo<Q>(&self, memo_id: MemoId, args: &Q::Args) -> Q::Out
     where
         Q: Query,
     {
-        self.memo_entries
-            .entry_mut(memo_id, |entry| entry.state = MemoState::InProgress);
+        self.memo_entries.entry_mut(memo_id, |entry| {
+            entry.deps.clear();
+            entry.state = MemoState::InProgress;
+        });
+        self.active_queries.push_query(memo_id);
         let eval_guard = self.metrics.enter_eval::<Q>(args);
         let out = Q::eval(self, args);
         self.metrics.exit_eval::<Q>(eval_guard, args, &out);
+        self.active_queries.pop_query();
         self.memo_entries
             .entry_mut(memo_id, |entry| entry.state = MemoState::Ready);
         out
@@ -210,9 +227,14 @@ impl MemoEntries {
 impl MemoEntry {
     const fn new() -> Self {
         Self {
+            deps: Vec::new(),
             state: MemoState::Ready,
             value: None,
         }
+    }
+
+    fn register_dep(&mut self, dep: MemoId) {
+        self.deps.push(dep);
     }
 
     fn set_value<Q>(&mut self, value: <Q>::Out)
@@ -255,5 +277,19 @@ impl MemoValueAny {
         self.0
             .downcast_ref()
             .unwrap_or_else(|| panic!("type cast failed"))
+    }
+}
+
+impl ActiveQueryStack {
+    fn active_query(&self) -> Option<MemoId> {
+        self.ids.borrow().last().copied()
+    }
+
+    fn push_query(&self, id: MemoId) {
+        self.ids.borrow_mut().push(id);
+    }
+
+    fn pop_query(&self) {
+        self.ids.borrow_mut().pop();
     }
 }
