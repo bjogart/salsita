@@ -6,6 +6,7 @@ use crate::query::Input;
 use crate::query::Query;
 use core::any::Any;
 use core::any::TypeId;
+use core::cell::Ref;
 use core::cell::RefCell;
 use std::collections::HashMap;
 
@@ -72,7 +73,8 @@ where
         I: Input,
     {
         let memo_id = self.new_memo::<I>(InputId::from);
-        self.memo_entries.update_memo_value::<I>(memo_id, value);
+        self.memo_entries
+            .entry_mut(memo_id, |entry| entry.set_value::<I>(value));
         InputId::from(memo_id)
     }
 
@@ -81,7 +83,7 @@ where
         I: Input,
     {
         self.memo_entries
-            .update_memo_value::<I>(id.memo_id(), value);
+            .entry_mut(id.memo_id(), |entry| entry.set_value::<I>(value));
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
@@ -92,7 +94,7 @@ where
         let memo_id = self.get_or_alloc_memo::<Q>(args);
         let out = self
             .memo_entries
-            .memo_value::<Q>(memo_id)
+            .entry(memo_id, MemoEntry::value::<Q>)
             .unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
         self.metrics.exit_query::<Q>(query_guard, args, &out);
         out
@@ -103,12 +105,12 @@ where
         Q: Query,
     {
         self.memo_entries
-            .update_memo_state(memo_id, MemoState::InProgress);
+            .entry_mut(memo_id, |entry| entry.state = MemoState::InProgress);
         let eval_guard = self.metrics.enter_eval::<Q>(args);
         let out = Q::eval(self, args);
         self.metrics.exit_eval::<Q>(eval_guard, args, &out);
         self.memo_entries
-            .update_memo_state(memo_id, MemoState::Ready);
+            .entry_mut(memo_id, |entry| entry.state = MemoState::Ready);
         out
     }
 
@@ -126,9 +128,8 @@ where
         Q: Query,
     {
         self.metrics.new_memo::<Q>();
-        let id = self.memo_entries.alloc_memo();
-        let args = make_args(id);
-        self.memo_index.insert_memo::<Q>(args, id);
+        let id = self.memo_entries.alloc_entry();
+        self.memo_index.insert_memo::<Q>(make_args(id), id);
         id
     }
 }
@@ -182,42 +183,27 @@ impl PerQueryIndexAny {
 }
 
 impl MemoEntries {
-    fn alloc_memo(&self) -> MemoId {
+    fn alloc_entry(&self) -> MemoId {
         let mut entries = self.entries.borrow_mut();
         let raw_id = RawId::new(entries.len());
         entries.push(RefCell::new(MemoEntry::new()));
         MemoId::from(raw_id)
     }
 
-    fn update_memo_value<Q>(&self, id: MemoId, value: Q::Out)
-    where
-        Q: Query,
-    {
-        if let Some(entry) = self.entries.borrow().get(id.idx()) {
-            let mut entry = entry.borrow_mut();
-            entry.value = Some(MemoValueAny::new::<Q>(value));
-        }
+    fn entry_mut<T>(&self, id: MemoId, f: impl FnOnce(&mut MemoEntry) -> T) -> T {
+        f(&mut self.entry_cell(id).borrow_mut())
     }
 
-    fn update_memo_state(&self, id: MemoId, state: MemoState) {
-        if let Some(entry) = self.entries.borrow().get(id.idx()) {
-            let mut entry = entry.borrow_mut();
-            entry.state = state
-        }
+    fn entry<T>(&self, id: MemoId, f: impl FnOnce(&MemoEntry) -> T) -> T {
+        f(&mut self.entry_cell(id).borrow())
     }
 
-    fn memo_value<Q>(&self, id: MemoId) -> Option<Q::Out>
-    where
-        Q: Query,
-    {
-        let entries = self.entries.borrow();
-        let entry = entries.get(id.idx())?.borrow();
-        entry.panic_on_cycle();
-        entry
-            .value
-            .as_ref()
-            .map(MemoValueAny::downcast::<Q>)
-            .cloned()
+    fn entry_cell(&self, id: MemoId) -> Ref<'_, RefCell<MemoEntry>> {
+        Ref::map(self.entries.borrow(), |entries| {
+            entries
+                .get(id.idx())
+                .unwrap_or_else(|| panic!("no entry for ID: {id:?}"))
+        })
     }
 }
 
@@ -227,6 +213,24 @@ impl MemoEntry {
             state: MemoState::Ready,
             value: None,
         }
+    }
+
+    fn set_value<Q>(&mut self, value: <Q>::Out)
+    where
+        Q: Query,
+    {
+        self.value = Some(MemoValueAny::new::<Q>(value))
+    }
+
+    fn value<Q>(&self) -> Option<Q::Out>
+    where
+        Q: Query,
+    {
+        self.panic_on_cycle();
+        self.value
+            .as_ref()
+            .map(MemoValueAny::downcast::<Q>)
+            .cloned()
     }
 
     fn panic_on_cycle(&self) {
