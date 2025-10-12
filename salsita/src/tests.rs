@@ -45,6 +45,7 @@ fn new_inputs_cause_re_evaluation_only_in_dependent_queries() {
 }
 
 #[test]
+
 fn change_propagation_stops_if_query_output_remains_the_same() {
     let mut db = empty_db();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
@@ -62,17 +63,23 @@ fn change_propagation_stops_if_query_output_remains_the_same() {
     );
 }
 
-fn init_inputs(
-    db: &mut Db<PerfMetrics>,
-) -> (
-    InputId<BurritoPrice>,
-    InputId<BurritoCount>,
-    InputId<SalsaPerBurrito>,
-) {
-    let price = db.new_input::<BurritoPrice>(8);
-    let count = db.new_input::<BurritoCount>(3);
-    let burrito_salsa = db.new_input::<SalsaPerBurrito>(40);
-    (price, count, burrito_salsa)
+#[test]
+#[should_panic]
+fn cycles_panic() {
+    struct Cycle;
+    impl Query for Cycle {
+        type Args = ();
+        type Out = ();
+
+        fn eval<M>(db: &Db<M>, (): &Self::Args) -> Self::Out
+        where
+            M: Metrics,
+        {
+            db.query::<Self>(&())
+        }
+    }
+
+    Db::<()>::default().query::<Cycle>(&());
 }
 
 fn assert_queries(
@@ -115,27 +122,43 @@ fn assert_queries(
     );
 }
 
-#[test]
-#[should_panic]
-fn cycles_panic() {
-    struct Cycle;
-    impl Query for Cycle {
-        type Args = ();
-        type Out = ();
-
-        fn eval<M>(db: &Db<M>, (): &Self::Args) -> Self::Out
-        where
-            M: Metrics,
-        {
-            db.query::<Self>(&())
-        }
-    }
-
-    Db::<()>::default().query::<Cycle>(&());
-}
-
 fn empty_db() -> Db<PerfMetrics> {
     Db::default()
+}
+
+fn init_inputs(
+    db: &mut Db<PerfMetrics>,
+) -> (
+    InputId<BurritoPrice>,
+    InputId<BurritoCount>,
+    InputId<SalsaPerBurrito>,
+) {
+    let price = db.new_input::<BurritoPrice>(8);
+    let count = db.new_input::<BurritoCount>(3);
+    let burrito_salsa = db.new_input::<SalsaPerBurrito>(40);
+    (price, count, burrito_salsa)
+}
+
+fn assert_query_delta<Q>(
+    db: &mut Db<PerfMetrics>,
+    args: &Q::Args,
+    exp_out: Q::Out,
+    dq: usize,
+    de: usize,
+) where
+    Q: Query,
+    Q::Out: Eq + fmt::Debug,
+{
+    let before = metrics_snapshot(db);
+    let out = db.query::<Q>(args);
+    assert_eq!(out, exp_out);
+    let after = metrics_snapshot(db);
+    assert_eq!((after.0 - before.0, after.1 - before.1), (dq, de));
+}
+
+fn metrics_snapshot(db: &mut Db<PerfMetrics>) -> (usize, usize) {
+    let m = db.metrics();
+    (m.query_count(), m.eval_count())
 }
 
 struct BurritoPrice;
@@ -205,26 +228,4 @@ impl Query for SalsaInOrder {
         let (burrito_salsa, count) = args;
         db.query::<BurritoCount>(count) * db.query::<SalsaPerBurrito>(burrito_salsa)
     }
-}
-
-fn assert_query_delta<Q>(
-    db: &mut Db<PerfMetrics>,
-    args: &Q::Args,
-    exp_out: Q::Out,
-    dq: usize,
-    de: usize,
-) where
-    Q: Query,
-    Q::Out: Eq + fmt::Debug,
-{
-    let before = metrics_snapshot(db);
-    let out = db.query::<Q>(args);
-    assert_eq!(out, exp_out);
-    let after = metrics_snapshot(db);
-    assert_eq!((after.0 - before.0, after.1 - before.1), (dq, de));
-}
-
-fn metrics_snapshot(db: &mut Db<PerfMetrics>) -> (usize, usize) {
-    let m = db.metrics();
-    (m.query_count(), m.eval_count())
 }
