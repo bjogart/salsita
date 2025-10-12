@@ -99,14 +99,14 @@ where
     {
         let query_guard = self.metrics.enter_query();
         let memo_id = self.get_or_alloc_memo::<Q>(args);
-        self.register_parent_dep(memo_id);
+        self.register_as_parent_dependency(memo_id);
         let memo_value = self.memo_entries.entry(memo_id, MemoEntry::value::<Q>);
         let out = memo_value.unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
         self.metrics.exit_query(query_guard);
         out
     }
 
-    fn register_parent_dep(&self, memo_id: MemoId) {
+    fn register_as_parent_dependency(&self, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.active_query() {
             self.memo_entries
                 .entry_mut(caller, |entry| entry.register_dep(memo_id));
