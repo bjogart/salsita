@@ -49,14 +49,7 @@ struct MemoEntries {
 #[derive(Debug)]
 struct MemoEntry {
     deps: Vec<MemoId>,
-    state: MemoState,
     value: Option<MemoValueAny>,
-}
-
-#[derive(Debug)]
-enum MemoState {
-    InProgress,
-    Ready,
 }
 
 #[derive(Debug)]
@@ -117,17 +110,13 @@ where
     where
         Q: Query,
     {
-        self.memo_entries.entry_mut(memo_id, |entry| {
-            entry.deps.clear();
-            entry.state = MemoState::InProgress;
-        });
+        self.memo_entries
+            .entry_mut(memo_id, |entry| entry.deps.clear());
         self.active_queries.push_query(memo_id);
         let eval_guard = self.metrics.enter_eval();
         let out = Q::eval(self, args);
         self.metrics.exit_eval(eval_guard);
         self.active_queries.pop_query();
-        self.memo_entries
-            .entry_mut(memo_id, |entry| entry.state = MemoState::Ready);
         out
     }
 
@@ -227,7 +216,6 @@ impl MemoEntry {
     const fn new() -> Self {
         Self {
             deps: Vec::new(),
-            state: MemoState::Ready,
             value: None,
         }
     }
@@ -247,17 +235,10 @@ impl MemoEntry {
     where
         Q: Query,
     {
-        self.panic_on_cycle();
         self.value
             .as_ref()
             .map(MemoValueAny::downcast::<Q>)
             .cloned()
-    }
-
-    fn panic_on_cycle(&self) {
-        if matches!(self.state, MemoState::InProgress) {
-            panic!("cycle detected")
-        }
     }
 }
 

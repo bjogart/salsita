@@ -71,25 +71,6 @@ fn propagation_updates_transitive_dependents() {
     assert_query_delta::<PriceWithVat>(&db, &(price, count), 23, 5, 3);
 }
 
-#[test]
-#[should_panic]
-fn cycles_panic() {
-    struct Cycle;
-    impl Query for Cycle {
-        type Args = ();
-        type Out = ();
-
-        fn eval<M>(db: &Db<M>, (): &Self::Args) -> Self::Out
-        where
-            M: Metrics,
-        {
-            db.query::<Self>(&())
-        }
-    }
-
-    Db::<()>::default().query::<Cycle>(&());
-}
-
 fn assert_queries(
     db: &Db<PerfMetrics>,
     price: InputId<BurritoPrice>,
