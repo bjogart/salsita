@@ -96,8 +96,19 @@ where
             self.memo_entries
                 .entry_mut(caller, |entry| entry.register_dep(memo_id));
         }
-        let memo_value = self.memo_entries.entry(memo_id, MemoEntry::value::<Q>);
-        let out = memo_value.unwrap_or_else(|| {
+        let has_value = self
+            .memo_entries
+            .entry(memo_id, |entry| entry.value.is_some());
+        let out = if has_value {
+            self.memo_entries.entry(memo_id, |entry| {
+                entry
+                    .value
+                    .as_ref()
+                    .expect("invariant: memo entry must have a value")
+                    .downcast::<Q>()
+                    .clone()
+            })
+        } else {
             self.memo_entries
                 .entry_mut(memo_id, |entry| entry.deps.clear());
             self.active_queries.push_query(memo_id);
@@ -106,7 +117,7 @@ where
             self.metrics.exit_eval(eval_guard);
             self.active_queries.pop_query();
             out
-        });
+        };
         self.metrics.exit_query(query_guard);
         out
     }
@@ -220,16 +231,6 @@ impl MemoEntry {
         Q: Query,
     {
         self.value = Some(MemoValueAny::new::<Q>(value))
-    }
-
-    fn value<Q>(&self) -> Option<Q::Out>
-    where
-        Q: Query,
-    {
-        self.value
-            .as_ref()
-            .map(MemoValueAny::downcast::<Q>)
-            .cloned()
     }
 }
 
