@@ -97,22 +97,17 @@ where
                 .entry_mut(caller, |entry| entry.register_dep(memo_id));
         }
         let memo_value = self.memo_entries.entry(memo_id, MemoEntry::value::<Q>);
-        let out = memo_value.unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
+        let out = memo_value.unwrap_or_else(|| {
+            self.memo_entries
+                .entry_mut(memo_id, |entry| entry.deps.clear());
+            self.active_queries.push_query(memo_id);
+            let eval_guard = self.metrics.enter_eval();
+            let out = Q::eval(self, args);
+            self.metrics.exit_eval(eval_guard);
+            self.active_queries.pop_query();
+            out
+        });
         self.metrics.exit_query(query_guard);
-        out
-    }
-
-    fn compute_memo<Q>(&self, memo_id: MemoId, args: &Q::Args) -> Q::Out
-    where
-        Q: Query,
-    {
-        self.memo_entries
-            .entry_mut(memo_id, |entry| entry.deps.clear());
-        self.active_queries.push_query(memo_id);
-        let eval_guard = self.metrics.enter_eval();
-        let out = Q::eval(self, args);
-        self.metrics.exit_eval(eval_guard);
-        self.active_queries.pop_query();
         out
     }
 
