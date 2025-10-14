@@ -8,6 +8,8 @@ use core::any::Any;
 use core::any::TypeId;
 use core::cell::Ref;
 use core::cell::RefCell;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
 use std::collections::HashMap;
 
 pub mod intern;
@@ -20,6 +22,7 @@ mod tests;
 pub struct Db<M> {
     memo_index: MemoIndex,
     memo_entries: MemoEntries<M>,
+    rev: GlobalRevision,
     active_queries: ActiveQueryStack,
     metrics: M,
 }
@@ -49,12 +52,19 @@ struct MemoEntries<M> {
 #[derive(Debug)]
 struct MemoEntry<M> {
     deps: Vec<MemoId>,
+    last_verified: Revision,
     eval: fn(&Db<M>, &dyn Any) -> AnyValue,
     value: Option<AnyValue>,
 }
 
 #[derive(Debug)]
 struct AnyValue(Box<dyn Any>);
+
+#[derive(Debug)]
+struct GlobalRevision(AtomicUsize);
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct Revision(usize);
 
 #[derive(Debug, Default)]
 struct ActiveQueryStack {
@@ -73,9 +83,10 @@ where
     where
         I: Input,
     {
-        let memo_id = self.new_memo::<I>(InputId::from);
+        let rev = self.rev.get();
+        let memo_id = self.new_memo::<I>(rev, InputId::from);
         self.memo_entries
-            .entry_mut(memo_id, |entry| entry.set_value::<I>(value));
+            .entry_mut(memo_id, |entry| entry.set_value::<I>(rev, value));
         InputId::from(memo_id)
     }
 
@@ -83,8 +94,9 @@ where
     where
         I: Input,
     {
+        let rev = self.rev.incr();
         self.memo_entries
-            .entry_mut(id.memo_id(), |entry| entry.set_value::<I>(value));
+            .entry_mut(id.memo_id(), |entry| entry.set_value::<I>(rev, value));
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
@@ -131,14 +143,14 @@ where
     {
         self.memo_index
             .memo::<Q>(args)
-            .unwrap_or_else(|| self.new_memo::<Q>(|_| args.clone()))
+            .unwrap_or_else(|| self.new_memo::<Q>(Revision::NEVER_VERIFIED, |_| args.clone()))
     }
 
-    fn new_memo<Q>(&self, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
+    fn new_memo<Q>(&self, rev: Revision, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
     where
         Q: Query,
     {
-        let id = self.memo_entries.alloc_entry::<Q>();
+        let id = self.memo_entries.alloc_entry::<Q>(rev);
         self.memo_index.insert_memo::<Q>(make_args(id), id);
         id
     }
@@ -196,13 +208,13 @@ impl<M> MemoEntries<M>
 where
     M: Metrics,
 {
-    fn alloc_entry<Q>(&self) -> MemoId
+    fn alloc_entry<Q>(&self, rev: Revision) -> MemoId
     where
         Q: Query,
     {
         let mut entries = self.entries.borrow_mut();
         let raw_id = RawId::new(entries.len());
-        entries.push(RefCell::new(MemoEntry::new::<Q>()));
+        entries.push(RefCell::new(MemoEntry::new::<Q>(rev)));
         MemoId::from(raw_id)
     }
 
@@ -227,12 +239,13 @@ impl<M> MemoEntry<M>
 where
     M: Metrics,
 {
-    const fn new<Q>() -> Self
+    const fn new<Q>(rev: Revision) -> Self
     where
         Q: Query,
     {
         return Self {
             deps: Vec::new(),
+            last_verified: rev,
             eval: eval::<M, Q>,
             value: None,
         };
@@ -254,11 +267,12 @@ where
         self.deps.push(dep);
     }
 
-    fn set_value<Q>(&mut self, value: <Q>::Out)
+    fn set_value<Q>(&mut self, rev: Revision, value: <Q>::Out)
     where
         Q: Query,
     {
-        self.value = Some(AnyValue::new::<Q>(value))
+        self.value = Some(AnyValue::new::<Q>(value));
+        self.last_verified = rev;
     }
 }
 
@@ -278,6 +292,27 @@ impl AnyValue {
             .downcast_ref()
             .unwrap_or_else(|| panic!("type cast failed"))
     }
+}
+
+impl GlobalRevision {
+    fn incr(&self) -> Revision {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        self.get()
+    }
+
+    fn get(&self) -> Revision {
+        Revision(self.0.load(Ordering::Acquire))
+    }
+}
+
+impl Default for GlobalRevision {
+    fn default() -> Self {
+        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0 + 1))
+    }
+}
+
+impl Revision {
+    const NEVER_VERIFIED: Self = Self(0);
 }
 
 impl ActiveQueryStack {
