@@ -4,6 +4,7 @@ use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
+use alloc::rc::Rc;
 use core::any::Any;
 use core::any::TypeId;
 use core::fmt::Debug;
@@ -14,12 +15,13 @@ use std::hash::RandomState;
 
 const NO_SUCH_ITEM: &str =
     "`Id` not in in Interner. This is probably due to cross-contamination from multiple `Db`s.";
+const TYPE_CAST_FAILED: &str = "type cast failed";
 
 #[derive(Debug, Default)]
 pub(crate) struct MemoData<M> {
     print_hasher: FingerprintHasher,
     args_index: HashMap<Fingerprint, Bucket, FingerprintHasher>,
-    args_items: Vec<AnyValue>,
+    args_items: Vec<Rc<dyn Any>>,
     memos: HashMap<MemoId, MemoEntry<M>>,
 }
 
@@ -117,23 +119,27 @@ where
         args_index.entry(print).or_default()
     }
 
-    fn bucket_entry<A>(args_items: &[AnyValue], bucket: &Bucket, args: &A) -> Option<ArgsId>
+    fn bucket_entry<A>(args_items: &[Rc<dyn Any>], bucket: &Bucket, args: &A) -> Option<ArgsId>
     where
         A: Eq + 'static,
     {
         bucket.0.iter().find_map(|id| {
-            let stored = args_items.get(id.idx).expect(NO_SUCH_ITEM).downcast::<A>();
+            let stored = args_items
+                .get(id.idx)
+                .expect(NO_SUCH_ITEM)
+                .downcast_ref::<A>()
+                .expect(TYPE_CAST_FAILED);
             (args == stored).then_some(*id)
         })
     }
 
-    fn insert_args<A>(args_items: &mut Vec<AnyValue>, bucket: &mut Bucket, args: &A) -> ArgsId
+    fn insert_args<A>(args_items: &mut Vec<Rc<dyn Any>>, bucket: &mut Bucket, args: &A) -> ArgsId
     where
         A: Clone + Eq + Hash + 'static,
     {
         let idx = args_items.len();
         let id = ArgsId { idx };
-        args_items.push(AnyValue::new::<A>(args.clone()));
+        args_items.push(Rc::new(args.clone()));
         bucket.0.push(id);
         id
     }
@@ -144,6 +150,10 @@ where
 
     pub(crate) fn memo(&self, id: MemoId) -> &MemoEntry<M> {
         self.memos.get(&id).expect(NO_SUCH_ITEM)
+    }
+
+    pub(crate) fn args(&self, id: MemoId) -> Rc<dyn Any> {
+        Rc::clone(self.args_items.get(id.args_id.idx).expect(NO_SUCH_ITEM))
     }
 }
 
@@ -160,7 +170,7 @@ impl<M> MemoEntry<M>
 where
     M: Metrics,
 {
-    const fn new<Q>() -> Self
+    fn new<Q>() -> Self
     where
         Q: Query,
     {
@@ -176,9 +186,7 @@ where
             M: Metrics,
             Q: Query,
         {
-            let args = args
-                .downcast_ref()
-                .unwrap_or_else(|| panic!("type cast failed"));
+            let args = args.downcast_ref().expect(TYPE_CAST_FAILED);
             let out = Q::eval(db, args);
             AnyValue::new::<Q::Out>(out)
         }
@@ -188,13 +196,17 @@ where
     where
         Q: Query,
     {
-        self.value = Some(AnyValue::new::<Q::Out>(value));
+        self.set_value_any(rev, AnyValue::new::<Q::Out>(value));
+    }
+
+    pub(crate) fn set_value_any(&mut self, rev: Revision, value: AnyValue) {
         self.last_verified = rev;
+        self.value = Some(value);
     }
 }
 
 impl AnyValue {
-    fn new<T>(value: T) -> Self
+    pub(crate) fn new<T>(value: T) -> Self
     where
         T: 'static,
     {
@@ -205,8 +217,6 @@ impl AnyValue {
     where
         T: 'static,
     {
-        self.0
-            .downcast_ref()
-            .unwrap_or_else(|| panic!("type cast failed"))
+        self.0.downcast_ref().expect(TYPE_CAST_FAILED)
     }
 }

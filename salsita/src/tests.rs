@@ -15,22 +15,14 @@ fn db_starts_empty() {
 fn queries_are_memoized_after_first_call() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
-    assert_queries(
-        &db,
-        price,
-        count,
-        burrito_salsa,
-        (10, 2, 1),
-        (30, 4, 2),
-        (35, 5, 3),
-        (120, 3, 1),
-    );
+    init_queries(&db, price, count, burrito_salsa);
 }
 
 #[test]
 fn only_dependent_queries_recompute_on_input_change() {
     let mut db = Db::default();
-    let (_, count, burrito_salsa) = init_inputs(&mut db);
+    let (price, count, burrito_salsa) = init_inputs(&mut db);
+    init_queries(&db, price, count, burrito_salsa);
     let discount_price = db.new_input::<BurritoPrice>(4);
     assert_queries(
         &db,
@@ -38,9 +30,9 @@ fn only_dependent_queries_recompute_on_input_change() {
         count,
         burrito_salsa,
         (6, 2, 1),
-        (18, 4, 2),
-        (23, 5, 3),
-        (120, 3, 1),
+        (18, 3, 1),
+        (23, 2, 1),
+        (120, 1, 0),
     );
 }
 
@@ -48,6 +40,7 @@ fn only_dependent_queries_recompute_on_input_change() {
 fn unchanged_outputs_stop_propagation() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
+    init_queries(&db, price, count, burrito_salsa);
     db.set_input(price, 4);
     db.set_input(count, 5);
     assert_queries(
@@ -56,8 +49,8 @@ fn unchanged_outputs_stop_propagation() {
         count,
         burrito_salsa,
         (6, 2, 1),
-        (30, 4, 2),
-        (35, 5, 3),
+        (30, 3, 1),
+        (35, 2, 1),
         (200, 3, 1),
     );
 }
@@ -65,10 +58,42 @@ fn unchanged_outputs_stop_propagation() {
 #[test]
 fn propagation_updates_transitive_dependents() {
     let mut db = Db::default();
-    let (price, count, _) = init_inputs(&mut db);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), 35, 5, 3);
+    let (price, count, burrito_salsa) = init_inputs(&mut db);
+    init_queries(&db, price, count, burrito_salsa);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), 35, 1, 0);
     db.set_input(price, 4);
     assert_query_delta::<PriceWithVat>(&db, &(price, count), 23, 5, 3);
+}
+
+fn init_queries(
+    db: &Db<PerfMetrics>,
+    price: InputId<BurritoPrice>,
+    count: InputId<BurritoCount>,
+    burrito_salsa: InputId<SalsaPerBurrito>,
+) {
+    assert_queries(
+        &db,
+        price,
+        count,
+        burrito_salsa,
+        (10, 2, 1),
+        (30, 3, 1),
+        (35, 2, 1),
+        (120, 3, 1),
+    );
+}
+
+fn init_inputs(
+    db: &mut Db<PerfMetrics>,
+) -> (
+    InputId<BurritoPrice>,
+    InputId<BurritoCount>,
+    InputId<SalsaPerBurrito>,
+) {
+    let price = db.new_input::<BurritoPrice>(8);
+    let count = db.new_input::<BurritoCount>(3);
+    let burrito_salsa = db.new_input::<SalsaPerBurrito>(40);
+    (price, count, burrito_salsa)
 }
 
 fn assert_queries(
@@ -109,19 +134,6 @@ fn assert_queries(
         salsa_in_order.1,
         salsa_in_order.2,
     );
-}
-
-fn init_inputs(
-    db: &mut Db<PerfMetrics>,
-) -> (
-    InputId<BurritoPrice>,
-    InputId<BurritoCount>,
-    InputId<SalsaPerBurrito>,
-) {
-    let price = db.new_input::<BurritoPrice>(8);
-    let count = db.new_input::<BurritoCount>(3);
-    let burrito_salsa = db.new_input::<SalsaPerBurrito>(40);
-    (price, count, burrito_salsa)
 }
 
 fn assert_query_delta<Q>(

@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use crate::intern::MemoData;
 use crate::intern::MemoId;
 use crate::metrics::Metrics;
@@ -65,36 +67,66 @@ where
         Q: Query,
     {
         let query_guard = self.metrics.enter_query();
-        let memo_id = self.memos.borrow_mut().intern_memo::<Q>(args);
+        let memo = self.memos.borrow_mut().intern_memo::<Q>(args);
+        self.resolve_memo(self.rev.get(), memo);
+        let out = self.force_memo::<Q>(memo);
+        self.metrics.exit_query(query_guard);
+        out
+    }
+
+    fn resolve_memo(&self, current_rev: Revision, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.borrow().active_query() {
             self.memos.borrow_mut().memo_mut(caller).deps.push(memo_id);
         }
-        let has_value = self.memos.borrow().memo(memo_id).value.is_some();
-        let out = if has_value {
-            self.memos
-                .borrow()
-                .memo(memo_id)
-                .value
-                .as_ref()
-                .expect("invariant: memo entry must have a value")
-                .downcast::<Q::Out>()
-                .clone()
-        } else {
-            let eval = {
-                let mut memos = self.memos.borrow_mut();
-                let entry = memos.memo_mut(memo_id);
-                entry.deps.clear();
-                entry.eval
-            };
-            self.active_queries.borrow_mut().push_query(memo_id);
-            let eval_guard = self.metrics.enter_eval();
-            let out = eval(self, args).downcast::<Q::Out>().clone();
-            self.metrics.exit_eval(eval_guard);
-            self.active_queries.borrow_mut().pop_query();
-            out
+        let (last_verified, deps, has_value) = {
+            let last_verified = self.memos.borrow().memo(memo_id).last_verified;
+            if last_verified == current_rev {
+                return;
+            }
+            let memos = self.memos.borrow();
+            let memo = memos.memo(memo_id);
+            (last_verified, memo.deps.clone(), memo.value.is_some())
         };
-        self.metrics.exit_query(query_guard);
-        out
+        let deps_postdate_self = deps
+            .into_iter()
+            .any(|dep| self.verify_dep(current_rev, last_verified, dep));
+        if !deps_postdate_self && has_value {
+            self.memos.borrow_mut().memo_mut(memo_id).last_verified = current_rev;
+            return;
+        }
+        let (eval, args) = {
+            let mut memos = self.memos.borrow_mut();
+            let entry = memos.memo_mut(memo_id);
+            entry.deps.clear();
+            (entry.eval, memos.args(memo_id))
+        };
+        self.active_queries.borrow_mut().push_query(memo_id);
+        let eval_guard = self.metrics.enter_eval();
+        let out = eval(self, args.as_ref());
+        self.metrics.exit_eval(eval_guard);
+        self.active_queries.borrow_mut().pop_query();
+        self.memos
+            .borrow_mut()
+            .memo_mut(memo_id)
+            .set_value_any(current_rev, out);
+    }
+
+    fn verify_dep(&self, current_rev: Revision, memo_last_verified: Revision, dep: MemoId) -> bool {
+        self.resolve_memo(current_rev, dep);
+        self.memos.borrow().memo(dep).last_verified > memo_last_verified
+    }
+
+    fn force_memo<Q>(&self, memo: MemoId) -> <Q as Query>::Out
+    where
+        Q: Query,
+    {
+        let memos = self.memos.borrow();
+        let memo = memos.memo(memo);
+        memo.value
+            .as_ref()
+            .expect("`Db::resolve_memo()` memoized up-to-date value")
+            .downcast::<Q::Out>()
+            .clone()
     }
 }
 
