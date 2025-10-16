@@ -8,7 +8,7 @@ use core::fmt;
 
 #[test]
 fn db_is_initialized_empty() {
-    assert_eq!(metrics_snapshot(&mut Db::default()), (0, 0, 0));
+    assert_eq!(metrics_snapshot(&Db::default()), (0, 0, 0));
 }
 
 #[test]
@@ -16,7 +16,7 @@ fn query_outputs_are_memoized() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     assert_queries(
-        &mut db,
+        &db,
         price,
         count,
         burrito_salsa,
@@ -33,7 +33,7 @@ fn new_inputs_cause_re_evaluation_only_in_dependent_queries() {
     let (_, count, burrito_salsa) = init_inputs(&mut db);
     let discount_price = db.new_input::<BurritoPrice>(4);
     assert_queries(
-        &mut db,
+        &db,
         discount_price,
         count,
         burrito_salsa,
@@ -51,7 +51,7 @@ fn change_propagation_stops_if_query_output_remains_the_same() {
     db.set_input(price, 4);
     db.set_input(count, 5);
     assert_queries(
-        &mut db,
+        &db,
         price,
         count,
         burrito_salsa,
@@ -82,7 +82,7 @@ fn cycles_panic() {
 }
 
 fn assert_queries(
-    db: &mut Db<PerfMetrics>,
+    db: &Db<PerfMetrics>,
     price: InputId<BurritoPrice>,
     count: InputId<BurritoCount>,
     burrito_salsa: InputId<SalsaPerBurrito>,
@@ -139,7 +139,7 @@ fn init_inputs(
 }
 
 fn assert_query_delta<Q>(
-    db: &mut Db<PerfMetrics>,
+    db: &Db<PerfMetrics>,
     args: &Q::Args,
     exp_out: Q::Out,
     memo_count: usize,
@@ -159,7 +159,7 @@ fn assert_query_delta<Q>(
     );
 }
 
-fn metrics_snapshot(db: &mut Db<PerfMetrics>) -> (usize, usize, usize) {
+fn metrics_snapshot(db: &Db<PerfMetrics>) -> (usize, usize, usize) {
     let m = db.metrics();
     (m.memo_count(), m.query_count(), m.eval_count())
 }
