@@ -211,41 +211,40 @@ struct Timings {
 }
 
 #[rustfmt::skip]
- type Sink3<D1, D2, D3> = Dep3<Add3, D1, D2, D3>;
+type Sink3<D1, D2, D3> = Dep3<Add3, D1, D2, D3>;
 
 #[rustfmt::skip]
- type Sink6<D1, D2, D3, D4, D5, D6> = Dep6<Add6, D1, D2, D3, D4, D5, D6>;
+type Sink6<D1, D2, D3, D4, D5, D6> = Dep6<Add6, D1, D2, D3, D4, D5, D6>;
 
 #[rustfmt::skip]
- type Sink9<D1, D2, D3, D4, D5, D6, D7, D8, D9> = Dep9<Add9, D1, D2, D3, D4, D5, D6, D7, D8, D9>;
+type Sink9<D1, D2, D3, D4, D5, D6, D7, D8, D9> = Dep9<Add9, D1, D2, D3, D4, D5, D6, D7, D8, D9>;
 
 #[rustfmt::skip]
- type Sink10<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10> = Dep10<Add10, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10>;
+type Sink10<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10> = Dep10<Add10, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10>;
 
 #[rustfmt::skip]
- type Sink27<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27> = Dep27<Add27, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27>;
+type Sink27<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27> = Dep27<Add27, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27>;
 
 #[rustfmt::skip]
- type Sink30<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30> = Dep30<Add30, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30>;
+type Sink30<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30> = Dep30<Add30, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30>;
 
 #[rustfmt::skip]
- type Sink100<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D40, D41, D42, D43, D44, D45, D46, D47, D48, D49, D50, D51, D52, D53, D54, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100> = Dep100<Add100, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D40, D41, D42, D43, D44, D45, D46, D47, D48, D49, D50, D51, D52, D53, D54, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100>;
-
+type Sink100<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D40, D41, D42, D43, D44, D45, D46, D47, D48, D49, D50, D51, D52, D53, D54, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100> = Dep100<Add100, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D40, D41, D42, D43, D44, D45, D46, D47, D48, D49, D50, D51, D52, D53, D54, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100>;
 type Branch<O> = Dep1<O, Inp>;
 
 /// Star-shaped graph variants (single input -> many dependents). `starN`
-    /// means one input node feeds N dependent nodes (fanout = N).
-    ///
-    /// This is useful to stress fanout and reveal invalidation cost when a
-    /// single input change causes re-evaluation of many dependents.
+/// means one input node feeds N dependent nodes (fanout = N).
+///
+/// This is useful to stress fanout and reveal invalidation cost when a
+/// single input change causes re-evaluation of many dependents.
 #[rustfmt::skip]
- type Star10 = Sink10<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>>;
+type Star10 = Sink10<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>>;
 
 #[rustfmt::skip]
- type Star30 = Sink30<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>, Branch<Inc1V11>, Branch<Inc1V12>, Branch<Inc1V13>, Branch<Inc1V14>, Branch<Inc1V15>, Branch<Inc1V16>, Branch<Inc1V17>, Branch<Inc1V18>, Branch<Inc1V19>, Branch<Inc1V20>, Branch<Inc1V21>, Branch<Inc1V22>, Branch<Inc1V23>, Branch<Inc1V24>, Branch<Inc1V25>, Branch<Inc1V26>, Branch<Inc1V27>, Branch<Inc1V28>, Branch<Inc1V29>, Branch<Inc1V30>>;
+type Star30 = Sink30<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>, Branch<Inc1V11>, Branch<Inc1V12>, Branch<Inc1V13>, Branch<Inc1V14>, Branch<Inc1V15>, Branch<Inc1V16>, Branch<Inc1V17>, Branch<Inc1V18>, Branch<Inc1V19>, Branch<Inc1V20>, Branch<Inc1V21>, Branch<Inc1V22>, Branch<Inc1V23>, Branch<Inc1V24>, Branch<Inc1V25>, Branch<Inc1V26>, Branch<Inc1V27>, Branch<Inc1V28>, Branch<Inc1V29>, Branch<Inc1V30>>;
 
 #[rustfmt::skip]
- type Star100 = Sink100<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>, Branch<Inc1V11>, Branch<Inc1V12>, Branch<Inc1V13>, Branch<Inc1V14>, Branch<Inc1V15>, Branch<Inc1V16>, Branch<Inc1V17>, Branch<Inc1V18>, Branch<Inc1V19>, Branch<Inc1V20>, Branch<Inc1V21>, Branch<Inc1V22>, Branch<Inc1V23>, Branch<Inc1V24>, Branch<Inc1V25>, Branch<Inc1V26>, Branch<Inc1V27>, Branch<Inc1V28>, Branch<Inc1V29>, Branch<Inc1V30>, Branch<Inc1V31>, Branch<Inc1V32>, Branch<Inc1V33>, Branch<Inc1V34>, Branch<Inc1V35>, Branch<Inc1V36>, Branch<Inc1V37>, Branch<Inc1V38>, Branch<Inc1V39>, Branch<Inc1V40>, Branch<Inc1V41>, Branch<Inc1V42>, Branch<Inc1V43>, Branch<Inc1V44>, Branch<Inc1V45>, Branch<Inc1V46>, Branch<Inc1V47>, Branch<Inc1V48>, Branch<Inc1V49>, Branch<Inc1V50>, Branch<Inc1V51>, Branch<Inc1V52>, Branch<Inc1V53>, Branch<Inc1V54>, Branch<Inc1V55>, Branch<Inc1V56>, Branch<Inc1V57>, Branch<Inc1V58>, Branch<Inc1V59>, Branch<Inc1V60>, Branch<Inc1V61>, Branch<Inc1V62>, Branch<Inc1V63>, Branch<Inc1V64>, Branch<Inc1V65>, Branch<Inc1V66>, Branch<Inc1V67>, Branch<Inc1V68>, Branch<Inc1V69>, Branch<Inc1V70>, Branch<Inc1V71>, Branch<Inc1V72>, Branch<Inc1V73>, Branch<Inc1V74>, Branch<Inc1V75>, Branch<Inc1V76>, Branch<Inc1V77>, Branch<Inc1V78>, Branch<Inc1V79>, Branch<Inc1V80>, Branch<Inc1V81>, Branch<Inc1V82>, Branch<Inc1V83>, Branch<Inc1V84>, Branch<Inc1V85>, Branch<Inc1V86>, Branch<Inc1V87>, Branch<Inc1V88>, Branch<Inc1V89>, Branch<Inc1V90>, Branch<Inc1V91>, Branch<Inc1V92>, Branch<Inc1V93>, Branch<Inc1V94>, Branch<Inc1V95>, Branch<Inc1V96>, Branch<Inc1V97>, Branch<Inc1V98>, Branch<Inc1V99>, Branch<Inc1V100>>;
+type Star100 = Sink100<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>, Branch<Inc1V11>, Branch<Inc1V12>, Branch<Inc1V13>, Branch<Inc1V14>, Branch<Inc1V15>, Branch<Inc1V16>, Branch<Inc1V17>, Branch<Inc1V18>, Branch<Inc1V19>, Branch<Inc1V20>, Branch<Inc1V21>, Branch<Inc1V22>, Branch<Inc1V23>, Branch<Inc1V24>, Branch<Inc1V25>, Branch<Inc1V26>, Branch<Inc1V27>, Branch<Inc1V28>, Branch<Inc1V29>, Branch<Inc1V30>, Branch<Inc1V31>, Branch<Inc1V32>, Branch<Inc1V33>, Branch<Inc1V34>, Branch<Inc1V35>, Branch<Inc1V36>, Branch<Inc1V37>, Branch<Inc1V38>, Branch<Inc1V39>, Branch<Inc1V40>, Branch<Inc1V41>, Branch<Inc1V42>, Branch<Inc1V43>, Branch<Inc1V44>, Branch<Inc1V45>, Branch<Inc1V46>, Branch<Inc1V47>, Branch<Inc1V48>, Branch<Inc1V49>, Branch<Inc1V50>, Branch<Inc1V51>, Branch<Inc1V52>, Branch<Inc1V53>, Branch<Inc1V54>, Branch<Inc1V55>, Branch<Inc1V56>, Branch<Inc1V57>, Branch<Inc1V58>, Branch<Inc1V59>, Branch<Inc1V60>, Branch<Inc1V61>, Branch<Inc1V62>, Branch<Inc1V63>, Branch<Inc1V64>, Branch<Inc1V65>, Branch<Inc1V66>, Branch<Inc1V67>, Branch<Inc1V68>, Branch<Inc1V69>, Branch<Inc1V70>, Branch<Inc1V71>, Branch<Inc1V72>, Branch<Inc1V73>, Branch<Inc1V74>, Branch<Inc1V75>, Branch<Inc1V76>, Branch<Inc1V77>, Branch<Inc1V78>, Branch<Inc1V79>, Branch<Inc1V80>, Branch<Inc1V81>, Branch<Inc1V82>, Branch<Inc1V83>, Branch<Inc1V84>, Branch<Inc1V85>, Branch<Inc1V86>, Branch<Inc1V87>, Branch<Inc1V88>, Branch<Inc1V89>, Branch<Inc1V90>, Branch<Inc1V91>, Branch<Inc1V92>, Branch<Inc1V93>, Branch<Inc1V94>, Branch<Inc1V95>, Branch<Inc1V96>, Branch<Inc1V97>, Branch<Inc1V98>, Branch<Inc1V99>, Branch<Inc1V100>>;
 
 type Link<D> = Dep1<Inc1, D>;
 
@@ -356,37 +355,37 @@ type TreeD3I27 = Tree<Inc1V39, TreeD2I9>;
 type TreeK3D2 = Sink3<TreeD1I1, TreeD1I2, TreeD1I3>;
 
 #[rustfmt::skip]
- type TreeK3D3 = Sink9<TreeD2I1, TreeD2I2, TreeD2I3, TreeD2I4, TreeD2I5, TreeD2I6, TreeD2I7, TreeD2I8, TreeD2I9>;
+type TreeK3D3 = Sink9<TreeD2I1, TreeD2I2, TreeD2I3, TreeD2I4, TreeD2I5, TreeD2I6, TreeD2I7, TreeD2I8, TreeD2I9>;
 
 #[rustfmt::skip]
- type TreeK3D4 = Sink27<TreeD3I1, TreeD3I2, TreeD3I3, TreeD3I4, TreeD3I5, TreeD3I6, TreeD3I7, TreeD3I8, TreeD3I9, TreeD3I10, TreeD3I11, TreeD3I12, TreeD3I13, TreeD3I14, TreeD3I15, TreeD3I16, TreeD3I17, TreeD3I18, TreeD3I19, TreeD3I20, TreeD3I21, TreeD3I22, TreeD3I23, TreeD3I24, TreeD3I25, TreeD3I26, TreeD3I27>;
+type TreeK3D4 = Sink27<TreeD3I1, TreeD3I2, TreeD3I3, TreeD3I4, TreeD3I5, TreeD3I6, TreeD3I7, TreeD3I8, TreeD3I9, TreeD3I10, TreeD3I11, TreeD3I12, TreeD3I13, TreeD3I14, TreeD3I15, TreeD3I16, TreeD3I17, TreeD3I18, TreeD3I19, TreeD3I20, TreeD3I21, TreeD3I22, TreeD3I23, TreeD3I24, TreeD3I25, TreeD3I26, TreeD3I27>;
 
 type FanIn<I> = Dep1<Inc1, I>;
 
 type FanOut<O, H> = Dep1<O, H>;
 
 #[rustfmt::skip]
- type Hub3 = Dep3<Add3, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>>;
+type Hub3 = Dep3<Add3, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>>;
 
 #[rustfmt::skip]
- type Hub6 = Dep6<Add6, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>>;
+type Hub6 = Dep6<Add6, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>>;
 
 #[rustfmt::skip]
- type Hub9 = Dep9<Add9, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>, FanIn<Inp7>, FanIn<Inp8>, FanIn<Inp9>>;
+type Hub9 = Dep9<Add9, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>, FanIn<Inp7>, FanIn<Inp8>, FanIn<Inp9>>;
 
 /// Hourglass-shaped graph. `hourglassN` means N inputs converge into a
-    /// single intermediate region and then diverge again into N outputs.
-    ///
-    /// This kind of graph stresses shared subexpressions and reuse. A correct
-    /// incremental engine should compute the shared region once and reuse it.
+/// single intermediate region and then diverge again into N outputs.
+///
+/// This kind of graph stresses shared subexpressions and reuse. A correct
+/// incremental engine should compute the shared region once and reuse it.
 #[rustfmt::skip]
- type Hourglass3 = Sink3<FanOut<Inc1, Hub3>, FanOut<Inc1V2, Hub3>, FanOut<Inc1V3, Hub3>>;
+type Hourglass3 = Sink3<FanOut<Inc1, Hub3>, FanOut<Inc1V2, Hub3>, FanOut<Inc1V3, Hub3>>;
 
 #[rustfmt::skip]
- type Hourglass6 = Sink6<FanOut<Inc1, Hub6>, FanOut<Inc1V2, Hub6>, FanOut<Inc1V3, Hub6>, FanOut<Inc1V4, Hub6>, FanOut<Inc1V5, Hub6>, FanOut<Inc1V6, Hub6>>;
+type Hourglass6 = Sink6<FanOut<Inc1, Hub6>, FanOut<Inc1V2, Hub6>, FanOut<Inc1V3, Hub6>, FanOut<Inc1V4, Hub6>, FanOut<Inc1V5, Hub6>, FanOut<Inc1V6, Hub6>>;
 
 #[rustfmt::skip]
- type Hourglass9 = Sink9<FanOut<Inc1, Hub9>, FanOut<Inc1V2, Hub9>, FanOut<Inc1V3, Hub9>, FanOut<Inc1V4, Hub9>, FanOut<Inc1V5, Hub9>, FanOut<Inc1V6, Hub9>, FanOut<Inc1V7, Hub9>, FanOut<Inc1V8, Hub9>, FanOut<Inc1V9, Hub9>>;
+type Hourglass9 = Sink9<FanOut<Inc1, Hub9>, FanOut<Inc1V2, Hub9>, FanOut<Inc1V3, Hub9>, FanOut<Inc1V4, Hub9>, FanOut<Inc1V5, Hub9>, FanOut<Inc1V6, Hub9>, FanOut<Inc1V7, Hub9>, FanOut<Inc1V8, Hub9>, FanOut<Inc1V9, Hub9>>;
 
 impl Report {
     pub(crate) fn new<const N: usize>() -> Self {
