@@ -63,6 +63,15 @@ fn unchanged_outputs_stop_propagation() {
 }
 
 #[test]
+fn propagation_updates_transitive_dependents() {
+    let mut db = Db::default();
+    let (price, count, _) = init_inputs(&mut db);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), 35, 6, 5, 3);
+    db.set_input(price, 4);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), 23, 6, 5, 3);
+}
+
+#[test]
 #[should_panic]
 fn cycles_panic() {
     struct Cycle;
