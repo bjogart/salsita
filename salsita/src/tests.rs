@@ -7,12 +7,12 @@ use crate::query::Query;
 use core::fmt;
 
 #[test]
-fn db_is_initialized_empty() {
+fn db_starts_empty() {
     assert_eq!(metrics_snapshot(&Db::default()), (0, 0, 0));
 }
 
 #[test]
-fn query_outputs_are_memoized() {
+fn queries_are_memoized_after_first_call() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     assert_queries(
@@ -28,7 +28,7 @@ fn query_outputs_are_memoized() {
 }
 
 #[test]
-fn new_inputs_cause_re_evaluation_only_in_dependent_queries() {
+fn only_dependent_queries_recompute_on_input_change() {
     let mut db = Db::default();
     let (_, count, burrito_salsa) = init_inputs(&mut db);
     let discount_price = db.new_input::<BurritoPrice>(4);
@@ -45,7 +45,7 @@ fn new_inputs_cause_re_evaluation_only_in_dependent_queries() {
 }
 
 #[test]
-fn change_propagation_stops_if_query_output_remains_the_same() {
+fn unchanged_outputs_stop_propagation() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     db.set_input(price, 4);
