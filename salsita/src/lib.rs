@@ -49,12 +49,12 @@ struct MemoEntries<M> {
 #[derive(Debug)]
 struct MemoEntry<M> {
     deps: Vec<MemoId>,
-    eval: fn(&Db<M>, &dyn Any) -> MemoValueAny,
-    value: Option<MemoValueAny>,
+    eval: fn(&Db<M>, &dyn Any) -> AnyValue,
+    value: Option<AnyValue>,
 }
 
 #[derive(Debug)]
-struct MemoValueAny(Box<dyn Any>);
+struct AnyValue(Box<dyn Any>);
 
 #[derive(Debug, Default)]
 struct ActiveQueryStack {
@@ -237,7 +237,7 @@ where
             value: None,
         };
 
-        fn eval<M, Q>(db: &Db<M>, args: &dyn Any) -> MemoValueAny
+        fn eval<M, Q>(db: &Db<M>, args: &dyn Any) -> AnyValue
         where
             M: Metrics,
             Q: Query,
@@ -246,7 +246,7 @@ where
                 .downcast_ref()
                 .unwrap_or_else(|| panic!("type cast failed"));
             let out = Q::eval(db, args);
-            MemoValueAny::new::<Q>(out)
+            AnyValue::new::<Q>(out)
         }
     }
 
@@ -258,11 +258,11 @@ where
     where
         Q: Query,
     {
-        self.value = Some(MemoValueAny::new::<Q>(value))
+        self.value = Some(AnyValue::new::<Q>(value))
     }
 }
 
-impl MemoValueAny {
+impl AnyValue {
     fn new<Q>(value: Q::Out) -> Self
     where
         Q: Query,
