@@ -59,7 +59,7 @@ where
         self.memos
             .borrow_mut()
             .memo_mut(id.memo_id())
-            .set_value::<I>(rev, value)
+            .memoize_at::<I>(rev, value)
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
@@ -76,28 +76,32 @@ where
 
     fn resolve_memo(&self, current_rev: Revision, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.borrow().active_query() {
-            self.memos.borrow_mut().memo_mut(caller).deps.push(memo_id);
+            self.memos.borrow_mut().memo_mut(caller).track_dep(memo_id);
         }
         let (last_verified, deps, has_value) = {
-            let last_verified = self.memos.borrow().memo(memo_id).last_verified;
+            let last_verified = self.memos.borrow().memo(memo_id).last_verified();
             if last_verified == current_rev {
                 return;
             }
             let memos = self.memos.borrow();
             let memo = memos.memo(memo_id);
-            (last_verified, memo.deps.clone(), memo.value.is_some())
+            let deps = Box::<[MemoId]>::from(memo.deps());
+            (last_verified, deps, memo.has_value())
         };
         let deps_postdate_self = deps
             .into_iter()
             .any(|dep| self.verify_dep(current_rev, last_verified, dep));
         if !deps_postdate_self && has_value {
-            self.memos.borrow_mut().memo_mut(memo_id).last_verified = current_rev;
+            self.memos
+                .borrow_mut()
+                .memo_mut(memo_id)
+                .verify_at(current_rev);
             return;
         }
         let (eval, args) = {
             let mut memos = self.memos.borrow_mut();
             let entry = memos.memo_mut(memo_id);
-            entry.deps.clear();
+            entry.untrack_deps();
             (entry.eval, memos.args(memo_id))
         };
         self.active_queries.borrow_mut().push_query(memo_id);
@@ -108,23 +112,22 @@ where
         self.memos
             .borrow_mut()
             .memo_mut(memo_id)
-            .set_value_any(current_rev, out);
+            .memoize_at_any(current_rev, out);
     }
 
     fn verify_dep(&self, current_rev: Revision, memo_last_verified: Revision, dep: MemoId) -> bool {
         self.resolve_memo(current_rev, dep);
-        self.memos.borrow().memo(dep).last_verified > memo_last_verified
+        self.memos.borrow().memo(dep).last_verified() > memo_last_verified
     }
 
     fn force_memo<Q>(&self, memo: MemoId) -> <Q as Query>::Out
     where
         Q: Query,
     {
-        let memos = self.memos.borrow();
-        let memo = memos.memo(memo);
-        memo.value
-            .as_ref()
-            .expect("`Db::resolve_memo()` memoized up-to-date value")
+        self.memos
+            .borrow()
+            .memo(memo)
+            .value()
             .downcast::<Q::Out>()
             .clone()
     }

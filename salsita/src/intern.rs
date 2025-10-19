@@ -46,10 +46,10 @@ struct ArgsId {
 
 #[derive(Debug)]
 pub(crate) struct MemoEntry<M> {
-    pub(crate) deps: Vec<MemoId>,
-    pub(crate) last_verified: Revision,
     pub(crate) eval: fn(&Db<M>, &dyn Any) -> AnyValue,
-    pub(crate) value: Option<AnyValue>,
+    deps: Vec<MemoId>,
+    last_verified: Revision,
+    value: Option<AnyValue>,
 }
 
 #[derive(Debug)]
@@ -75,7 +75,7 @@ where
         debug_assert_eq!(args_id, dup_args_id);
 
         let mut entry = MemoEntry::new::<I>();
-        entry.set_value::<I>(rev, value);
+        entry.memoize_at::<I>(rev, value);
         self.memos.insert(memo_id, entry);
 
         input_id
@@ -192,16 +192,44 @@ where
         }
     }
 
-    pub(crate) fn set_value<Q>(&mut self, rev: Revision, value: Q::Out)
+    pub(crate) fn track_dep(&mut self, dep: MemoId) {
+        self.deps.push(dep);
+    }
+
+    pub(crate) fn untrack_deps(&mut self) {
+        self.deps.clear();
+    }
+
+    pub(crate) fn deps(&self) -> &[MemoId] {
+        &self.deps
+    }
+
+    pub(crate) const fn last_verified(&self) -> Revision {
+        self.last_verified
+    }
+
+    pub(crate) const fn has_value(&self) -> bool {
+        self.value.is_some()
+    }
+
+    pub(crate) fn memoize_at<Q>(&mut self, rev: Revision, value: Q::Out)
     where
         Q: Query,
     {
-        self.set_value_any(rev, AnyValue::new::<Q::Out>(value));
+        self.memoize_at_any(rev, AnyValue::new::<Q::Out>(value));
     }
 
-    pub(crate) fn set_value_any(&mut self, rev: Revision, value: AnyValue) {
-        self.last_verified = rev;
+    pub(crate) fn memoize_at_any(&mut self, rev: Revision, value: AnyValue) {
+        self.verify_at(rev);
         self.value = Some(value);
+    }
+
+    pub(crate) const fn value(&self) -> &AnyValue {
+        self.value.as_ref().expect("value not memoized")
+    }
+
+    pub(crate) const fn verify_at(&mut self, rev: Revision) {
+        self.last_verified = rev;
     }
 }
 
