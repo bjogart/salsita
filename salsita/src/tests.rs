@@ -4,7 +4,7 @@ use crate::metrics::Metrics;
 use crate::metrics::PerfMetrics;
 use crate::query::Input;
 use crate::query::Query;
-use core::fmt;
+use core::fmt::Debug;
 
 #[test]
 fn db_starts_empty() {
@@ -151,7 +151,7 @@ fn assert_query_delta<Q>(
     de: usize,
 ) where
     Q: Query,
-    Q::Out: Eq + fmt::Debug,
+    Q::Out: Eq + Debug,
 {
     let (q_before, e_before) = metrics_snapshot(db);
     let out = db.query::<Q>(args);
