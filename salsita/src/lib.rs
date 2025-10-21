@@ -70,12 +70,10 @@ where
     where
         Q: Query,
     {
-        let query_guard = self.metrics.enter_query();
+        let _query_guard = self.metrics.query_scope();
         let memo = self.memos.borrow_mut().intern_memo::<Q>(args);
         self.resolve_memo(self.rev.get(), memo);
-        let out = self.force_memo::<Q>(memo);
-        self.metrics.exit_query(query_guard);
-        out
+        self.force_memo::<Q>(memo)
     }
 
     fn resolve_memo(&self, current_rev: Revision, memo_id: MemoId) {
@@ -111,7 +109,7 @@ where
         let _stack_len = self.active_queries.len();
         let out = {
             let _active_query_guard = self.active_queries.push_query(memo_id);
-            let _eval_guard = self.metrics.enter_eval();
+            let _eval_guard = self.metrics.eval_scope();
             eval(self, args.as_ref())
         };
         debug_assert_eq!(self.active_queries.len(), _stack_len);
