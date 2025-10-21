@@ -20,7 +20,7 @@ mod tests;
 pub struct Db<M> {
     memos: RefCell<MemoData<M>>,
     rev: GlobalRevision,
-    active_queries: RefCell<ActiveQueryStack>,
+    active_queries: ActiveQueryStack,
     metrics: M,
 }
 
@@ -32,7 +32,11 @@ struct Revision(usize);
 
 #[derive(Debug, Default)]
 struct ActiveQueryStack {
-    ids: Vec<MemoId>,
+    ids: RefCell<Vec<MemoId>>,
+}
+
+struct PopActiveQuery<'stack> {
+    stack: &'stack ActiveQueryStack,
 }
 
 impl<M> Db<M>
@@ -75,7 +79,7 @@ where
     }
 
     fn resolve_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        if let Some(caller) = self.active_queries.borrow().active_query() {
+        if let Some(caller) = self.active_queries.active_query() {
             self.memos.borrow_mut().memo_mut(caller).track_dep(memo_id);
         }
         let (last_verified, deps, has_value) = {
@@ -104,11 +108,13 @@ where
             entry.untrack_deps();
             (entry.eval, memos.args(memo_id))
         };
-        self.active_queries.borrow_mut().push_query(memo_id);
-        let eval_guard = self.metrics.enter_eval();
-        let out = eval(self, args.as_ref());
-        self.metrics.exit_eval(eval_guard);
-        self.active_queries.borrow_mut().pop_query();
+        let _stack_len = self.active_queries.len();
+        let out = {
+            let _active_query_guard = self.active_queries.push_query(memo_id);
+            let _eval_guard = self.metrics.enter_eval();
+            eval(self, args.as_ref())
+        };
+        debug_assert_eq!(self.active_queries.len(), _stack_len);
         self.memos
             .borrow_mut()
             .memo_mut(memo_id)
@@ -156,14 +162,21 @@ impl Revision {
 
 impl ActiveQueryStack {
     fn active_query(&self) -> Option<MemoId> {
-        self.ids.last().copied()
+        self.ids.borrow().last().copied()
     }
 
-    fn push_query(&mut self, id: MemoId) {
-        self.ids.push(id);
+    fn push_query(&self, id: MemoId) -> PopActiveQuery<'_> {
+        self.ids.borrow_mut().push(id);
+        PopActiveQuery { stack: self }
     }
 
-    fn pop_query(&mut self) {
-        self.ids.pop();
+    fn len(&self) -> usize {
+        self.ids.borrow().len()
+    }
+}
+
+impl Drop for PopActiveQuery<'_> {
+    fn drop(&mut self) {
+        self.stack.ids.borrow_mut().pop();
     }
 }
