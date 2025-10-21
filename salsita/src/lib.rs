@@ -97,12 +97,12 @@ where
     where
         Q: Query,
     {
-        let query_guard = self.metrics.enter_query::<Q>(args);
+        let query_guard = self.metrics.enter_query();
         let memo_id = self.get_or_alloc_memo::<Q>(args);
         self.register_parent_dep(memo_id);
         let memo_value = self.memo_entries.entry(memo_id, MemoEntry::value::<Q>);
         let out = memo_value.unwrap_or_else(|| self.compute_memo::<Q>(memo_id, args));
-        self.metrics.exit_query::<Q>(query_guard, args, &out);
+        self.metrics.exit_query(query_guard);
         out
     }
 
@@ -122,9 +122,9 @@ where
             entry.state = MemoState::InProgress;
         });
         self.active_queries.push_query(memo_id);
-        let eval_guard = self.metrics.enter_eval::<Q>(args);
+        let eval_guard = self.metrics.enter_eval();
         let out = Q::eval(self, args);
-        self.metrics.exit_eval::<Q>(eval_guard, args, &out);
+        self.metrics.exit_eval(eval_guard);
         self.active_queries.pop_query();
         self.memo_entries
             .entry_mut(memo_id, |entry| entry.state = MemoState::Ready);
