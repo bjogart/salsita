@@ -144,7 +144,6 @@ where
     where
         Q: Query,
     {
-        self.metrics.new_memo::<Q>();
         let id = self.memo_entries.alloc_entry();
         self.memo_index.insert_memo::<Q>(make_args(id), id);
         id

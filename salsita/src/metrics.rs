@@ -18,10 +18,6 @@ pub trait Metrics {
     where
         Q: Query;
 
-    fn new_memo<Q>(&self)
-    where
-        Q: Query;
-
     fn enter_eval<Q>(&self, args: &Q::Args) -> Self::EvalGuard
     where
         Q: Query;
@@ -37,7 +33,6 @@ pub struct PerfMetrics {
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
-    memo_count: AtomicUsize,
 }
 
 #[derive(Debug, Default)]
@@ -63,13 +58,6 @@ impl Metrics for PerfMetrics {
         Q: Query,
     {
         self.exit_query_any(guard);
-    }
-
-    fn new_memo<Q>(&self)
-    where
-        Q: Query,
-    {
-        self.enter_memo_any();
     }
 
     fn enter_eval<Q>(&self, _: &Q::Args) -> Self::EvalGuard
@@ -99,7 +87,6 @@ impl PerfMetrics {
             eval_time,
             query_count,
             eval_count,
-            memo_count: _,
         } = self;
         query_time.reset();
         eval_time.reset();
@@ -123,20 +110,12 @@ impl PerfMetrics {
         self.eval_count.load(Ordering::Relaxed)
     }
 
-    pub fn memo_count(&self) -> usize {
-        self.memo_count.load(Ordering::Relaxed)
-    }
-
     fn enter_query_any(&self) {
         self.query_count.fetch_add(1, Ordering::Relaxed);
     }
 
     fn exit_query_any(&self, entered_at: Instant) {
         self.query_time.add(entered_at.elapsed());
-    }
-
-    fn enter_memo_any(&self) {
-        self.memo_count.fetch_add(1, Ordering::Relaxed);
     }
 
     fn enter_eval_any(&self) {
@@ -160,12 +139,6 @@ impl Metrics for () {
     }
 
     fn exit_query<Q>(&self, (): Self::QueryGuard, _: &Q::Args, _: &Q::Out)
-    where
-        Q: Query,
-    {
-    }
-
-    fn new_memo<Q>(&self)
     where
         Q: Query,
     {

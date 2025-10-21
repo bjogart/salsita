@@ -182,8 +182,6 @@ struct ScenarioMetrics {
 /// All counts are recorded by [`PerfMetrics`] instrumentation.
 #[derive(serde::Serialize)]
 struct Counts {
-    /// The number of memos allocated by [`Db`].
-    memo: usize,
     /// *Every* `Db::query::<Q>` invocation that occurred during the run,
     /// including nested calls made from within `Query::eval`.
     query: usize,
@@ -670,7 +668,6 @@ where
 impl Counts {
     fn new(m: &PerfMetrics) -> Self {
         Self {
-            memo: m.memo_count(),
             query: m.query_count(),
             eval: m.eval_count(),
         }
