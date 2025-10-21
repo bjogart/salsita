@@ -1,8 +1,8 @@
-use crate::intern::InputId;
 use crate::intern::MemoId;
 use crate::intern::RawId;
 use crate::metrics::Metrics;
 use crate::query::Input;
+use crate::query::InputId;
 use crate::query::Query;
 use core::any::Any;
 use core::any::TypeId;

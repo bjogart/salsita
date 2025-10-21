@@ -1,8 +1,8 @@
 use crate::Db;
-use crate::intern::InputId;
 use crate::metrics::Metrics;
 use crate::metrics::PerfMetrics;
 use crate::query::Input;
+use crate::query::InputId;
 use crate::query::Query;
 use core::fmt::Debug;
 
