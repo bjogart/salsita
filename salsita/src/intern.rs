@@ -46,7 +46,7 @@ struct ArgsId {
 
 #[derive(Debug)]
 pub(crate) struct MemoEntry<M> {
-    pub(crate) eval: fn(&Db<M>, &dyn Any) -> Box<dyn Any>,
+    pub(crate) eval: fn(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>,
     deps: Vec<MemoId>,
     last_verified: Revision,
     value: Option<Box<dyn Any>>,
@@ -172,9 +172,9 @@ where
         Q: Query,
     {
         return Self {
+            eval: eval::<M, Q>,
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
-            eval: eval::<M, Q>,
             value: None,
         };
 
