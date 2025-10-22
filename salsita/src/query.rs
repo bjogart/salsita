@@ -11,7 +11,7 @@ use core::marker::PhantomData;
 
 pub trait Query: 'static {
     type Args: Clone + Eq + Hash;
-    type Out: Clone;
+    type Out: Clone + Eq;
 
     fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
     where
@@ -19,7 +19,7 @@ pub trait Query: 'static {
 }
 
 pub trait Input: 'static {
-    type Value: Clone;
+    type Value: Clone + Eq;
 }
 
 pub struct InputId<I>(MemoId, PhantomData<I>)

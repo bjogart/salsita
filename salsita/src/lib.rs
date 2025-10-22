@@ -63,7 +63,7 @@ where
         self.memos
             .borrow_mut()
             .memo_mut(id.memo_id())
-            .memoize_at::<I>(rev, value)
+            .memoize_at::<I>(rev, value);
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
@@ -119,7 +119,7 @@ where
         self.memos
             .borrow_mut()
             .memo_mut(memo_id)
-            .memoize_at_any(current_rev, out);
+            .memoize_at_any(current_rev, out)
     }
 
     fn dep_postdates_rev(
@@ -129,7 +129,7 @@ where
         dep: MemoId,
     ) -> bool {
         self.verify_memo(current_rev, dep);
-        self.memos.borrow().memo(dep).last_verified() > memo_last_verified
+        self.memos.borrow().memo(dep).last_changed() > memo_last_verified
     }
 
     fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
