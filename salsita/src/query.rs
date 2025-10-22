@@ -1,5 +1,5 @@
 use crate::Db;
-use crate::intern::MemoId;
+use crate::memo::MemoId;
 use crate::metrics::Metrics;
 use core::cmp::Ordering;
 use core::fmt;
