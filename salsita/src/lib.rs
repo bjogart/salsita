@@ -87,8 +87,7 @@ where
             }
             let memos = self.memos.borrow();
             let memo = memos.memo(memo_id);
-            let deps = Box::<[MemoId]>::from(memo.deps());
-            (last_verified, deps, memo.has_value())
+            (last_verified, memo.deps(), memo.has_value())
         };
         let deps_postdate_memo = deps
             .into_iter()

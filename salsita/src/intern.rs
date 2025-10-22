@@ -197,8 +197,8 @@ where
         self.deps.clear();
     }
 
-    pub(crate) fn deps(&self) -> &[MemoId] {
-        &self.deps
+    pub(crate) fn deps(&self) -> Box<[MemoId]> {
+        Box::from(self.deps.as_slice())
     }
 
     pub(crate) const fn last_verified(&self) -> Revision {
