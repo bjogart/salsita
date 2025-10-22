@@ -73,7 +73,7 @@ where
         let _query_guard = self.metrics.query_scope();
         let memo_id = self.memos.borrow_mut().intern_query::<Q>(args);
         self.verify_memo(self.rev.get(), memo_id);
-        self.cloned_memo_value::<Q>(memo_id)
+        self.memoized_value::<Q>(memo_id)
     }
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
@@ -133,16 +133,11 @@ where
         self.memos.borrow().memo(dep).last_verified() > memo_last_verified
     }
 
-    fn cloned_memo_value<Q>(&self, memo_id: MemoId) -> <Q as Query>::Out
+    fn memoized_value<Q>(&self, memo_id: MemoId) -> <Q as Query>::Out
     where
         Q: Query,
     {
-        self.memos
-            .borrow()
-            .memo(memo_id)
-            .value()
-            .downcast::<Q::Out>()
-            .clone()
+        self.memos.borrow().memo(memo_id).value::<Q::Out>().clone()
     }
 }
 
