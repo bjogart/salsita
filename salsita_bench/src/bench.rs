@@ -129,7 +129,7 @@ use crate::macros::Tuple10;
 use crate::macros::Tuple27;
 use crate::macros::Tuple30;
 use crate::macros::Tuple100;
-use core::fmt;
+use core::fmt::Debug;
 use core::iter;
 use salsita::Db;
 use salsita::metrics::PerfMetrics;
@@ -182,8 +182,6 @@ struct ScenarioMetrics {
 /// All counts are recorded by [`PerfMetrics`] instrumentation.
 #[derive(serde::Serialize)]
 struct Counts {
-    /// The number of memos allocated by [`Db`].
-    memo: usize,
     /// *Every* `Db::query::<Q>` invocation that occurred during the run,
     /// including nested calls made from within `Query::eval`.
     query: usize,
@@ -595,7 +593,7 @@ fn bench_graph<const N: usize, Sink>(
 ) -> GraphMetrics
 where
     Sink: Query,
-    Sink::Out: Copy + Eq + fmt::Debug,
+    Sink::Out: Copy + Eq + Debug,
 {
     GraphMetrics {
         cold: bench_scenario::<N, _, _>(
@@ -636,7 +634,7 @@ fn bench_scenario<const N: usize, Inp, Out>(
     exp: Out,
 ) -> ScenarioMetrics
 where
-    Out: Copy + Eq + fmt::Debug,
+    Out: Copy + Eq + Debug,
 {
     let (_, counts, out) = bench_iter(init, bench);
     assert_eq!(out, exp);
@@ -656,7 +654,7 @@ where
         bench: impl Fn(&mut Db<PerfMetrics>, T) -> Out,
     ) -> (Timings, Counts, Out)
     where
-        Out: Eq + fmt::Debug,
+        Out: Eq + Debug,
     {
         let mut db = Db::default();
         let v = init(&mut db);
@@ -670,7 +668,6 @@ where
 impl Counts {
     fn new(m: &PerfMetrics) -> Self {
         Self {
-            memo: m.memo_count(),
             query: m.query_count(),
             eval: m.eval_count(),
         }

@@ -1,4 +1,3 @@
-use crate::Query;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
@@ -10,25 +9,13 @@ pub trait Metrics {
 
     type EvalGuard;
 
-    fn enter_query<Q>(&self, args: &Q::Args) -> Self::QueryGuard
-    where
-        Q: Query;
+    fn enter_query(&self) -> Self::QueryGuard;
 
-    fn exit_query<Q>(&self, guard: Self::QueryGuard, args: &Q::Args, out: &Q::Out)
-    where
-        Q: Query;
+    fn exit_query(&self, guard: Self::QueryGuard);
 
-    fn new_memo<Q>(&self)
-    where
-        Q: Query;
+    fn enter_eval(&self) -> Self::EvalGuard;
 
-    fn enter_eval<Q>(&self, args: &Q::Args) -> Self::EvalGuard
-    where
-        Q: Query;
-
-    fn exit_eval<Q>(&self, guard: Self::EvalGuard, args: &Q::Args, out: &Q::Out)
-    where
-        Q: Query;
+    fn exit_eval(&self, guard: Self::EvalGuard);
 }
 
 #[derive(Debug, Default)]
@@ -37,7 +24,6 @@ pub struct PerfMetrics {
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
-    memo_count: AtomicUsize,
 }
 
 #[derive(Debug, Default)]
@@ -50,41 +36,22 @@ impl Metrics for PerfMetrics {
 
     type EvalGuard = Instant;
 
-    fn enter_query<Q>(&self, _: &Q::Args) -> Self::QueryGuard
-    where
-        Q: Query,
-    {
-        self.enter_query_any();
+    fn enter_query(&self) -> Self::QueryGuard {
+        self.query_count.fetch_add(1, Ordering::Relaxed);
         Instant::now()
     }
 
-    fn exit_query<Q>(&self, guard: Self::QueryGuard, _: &Q::Args, _: &Q::Out)
-    where
-        Q: Query,
-    {
-        self.exit_query_any(guard);
+    fn exit_query(&self, guard: Self::QueryGuard) {
+        self.query_time.add(guard.elapsed());
     }
 
-    fn new_memo<Q>(&self)
-    where
-        Q: Query,
-    {
-        self.enter_memo_any();
-    }
-
-    fn enter_eval<Q>(&self, _: &Q::Args) -> Self::EvalGuard
-    where
-        Q: Query,
-    {
-        self.enter_eval_any();
+    fn enter_eval(&self) -> Self::EvalGuard {
+        self.eval_count.fetch_add(1, Ordering::Relaxed);
         Instant::now()
     }
 
-    fn exit_eval<Q>(&self, guard: Self::EvalGuard, _: &Q::Args, _: &Q::Out)
-    where
-        Q: Query,
-    {
-        self.exit_eval_any(guard);
+    fn exit_eval(&self, guard: Self::EvalGuard) {
+        self.eval_time.add(guard.elapsed());
     }
 }
 
@@ -99,7 +66,6 @@ impl PerfMetrics {
             eval_time,
             query_count,
             eval_count,
-            memo_count: _,
         } = self;
         query_time.reset();
         eval_time.reset();
@@ -122,30 +88,6 @@ impl PerfMetrics {
     pub fn eval_count(&self) -> usize {
         self.eval_count.load(Ordering::Relaxed)
     }
-
-    pub fn memo_count(&self) -> usize {
-        self.memo_count.load(Ordering::Relaxed)
-    }
-
-    fn enter_query_any(&self) {
-        self.query_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn exit_query_any(&self, entered_at: Instant) {
-        self.query_time.add(entered_at.elapsed());
-    }
-
-    fn enter_memo_any(&self) {
-        self.memo_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn enter_eval_any(&self) {
-        self.eval_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn exit_eval_any(&self, entered_at: Instant) {
-        self.eval_time.add(entered_at.elapsed());
-    }
 }
 
 impl Metrics for () {
@@ -153,35 +95,13 @@ impl Metrics for () {
 
     type EvalGuard = ();
 
-    fn enter_query<Q>(&self, _: &Q::Args) -> Self::QueryGuard
-    where
-        Q: Query,
-    {
-    }
+    fn enter_query(&self) -> Self::QueryGuard {}
 
-    fn exit_query<Q>(&self, (): Self::QueryGuard, _: &Q::Args, _: &Q::Out)
-    where
-        Q: Query,
-    {
-    }
+    fn exit_query(&self, (): Self::QueryGuard) {}
 
-    fn new_memo<Q>(&self)
-    where
-        Q: Query,
-    {
-    }
+    fn enter_eval(&self) -> Self::EvalGuard {}
 
-    fn enter_eval<Q>(&self, _: &Q::Args) -> Self::EvalGuard
-    where
-        Q: Query,
-    {
-    }
-
-    fn exit_eval<Q>(&self, (): Self::EvalGuard, _: &Q::Args, _: &Q::Out)
-    where
-        Q: Query,
-    {
-    }
+    fn exit_eval(&self, (): Self::EvalGuard) {}
 }
 
 impl AtomicDuration {
