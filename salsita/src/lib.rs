@@ -71,8 +71,8 @@ impl<M> Db<M>
 where
     M: Metrics,
 {
-    pub const fn metrics(&mut self) -> &mut M {
-        &mut self.metrics
+    pub const fn metrics(&self) -> &M {
+        &self.metrics
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
