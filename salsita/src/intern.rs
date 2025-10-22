@@ -47,8 +47,10 @@ struct ArgsId {
 #[derive(Debug)]
 pub(crate) struct MemoEntry<M> {
     pub(crate) eval: fn(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>,
+    pub(crate) eq: fn(a: &dyn Any, b: &dyn Any) -> bool,
     deps: Vec<MemoId>,
     last_verified: Revision,
+    last_changed: Revision,
     value: Option<Box<dyn Any>>,
 }
 
@@ -173,8 +175,10 @@ where
     {
         return Self {
             eval: eval::<M, Q>,
+            eq: eq::<Q::Out>,
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
+            last_changed: Revision::NEVER_VERIFIED,
             value: None,
         };
 
@@ -186,6 +190,14 @@ where
             let args = args.downcast_ref().expect(TYPE_CAST_FAILED);
             let out = Q::eval(db, args);
             Box::new(out)
+        }
+
+        fn eq<T>(a: &dyn Any, b: &dyn Any) -> bool
+        where
+            T: Eq + 'static,
+        {
+            a.downcast_ref::<T>().expect(TYPE_CAST_FAILED)
+                == b.downcast_ref::<T>().expect(TYPE_CAST_FAILED)
         }
     }
 
@@ -205,6 +217,10 @@ where
         self.last_verified
     }
 
+    pub(crate) const fn last_changed(&self) -> Revision {
+        self.last_changed
+    }
+
     pub(crate) const fn has_value(&self) -> bool {
         self.value.is_some()
     }
@@ -218,6 +234,12 @@ where
 
     pub(crate) fn memoize_at_any(&mut self, rev: Revision, value: Box<dyn Any>) {
         self.verify_at(rev);
+        if let Some(prev) = self.value.as_ref()
+            && (self.eq)(value.as_ref(), prev.as_ref())
+        {
+            return;
+        }
+        self.change_at(rev);
         self.value = Some(value);
     }
 
@@ -234,5 +256,9 @@ where
 
     pub(crate) const fn verify_at(&mut self, rev: Revision) {
         self.last_verified = rev;
+    }
+
+    const fn change_at(&mut self, rev: Revision) {
+        self.last_changed = rev;
     }
 }

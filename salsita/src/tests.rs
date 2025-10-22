@@ -8,7 +8,7 @@ use core::fmt::Debug;
 
 #[test]
 fn db_starts_empty() {
-    assert_eq!(metrics_snapshot(&Db::default()), (0, 0));
+    assert_eq!(metrics_snapshot(&Db::default()), (0, 0,));
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn unchanged_outputs_stop_propagation() {
         burrito_salsa,
         (6, 2, 1),
         (30, 3, 1),
-        (35, 2, 1),
+        (35, 1, 0),
         (200, 3, 1),
     );
 }
