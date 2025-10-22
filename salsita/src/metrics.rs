@@ -1,21 +1,42 @@
+use crate::metrics::seal::EvalGuard;
+use crate::metrics::seal::QueryGuard;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 use std::time::Instant;
 
-pub trait Metrics {
-    type QueryGuard;
+pub trait Metrics
+where
+    Self: Sized,
+{
+    type Query;
 
-    type EvalGuard;
+    type Eval;
 
-    fn enter_query(&self) -> Self::QueryGuard;
+    fn query_scope(&self) -> QueryGuard<'_, Self, Self::Query> {
+        let value = self.begin_query();
+        QueryGuard {
+            metrics: self,
+            value: Some(value),
+        }
+    }
 
-    fn exit_query(&self, guard: Self::QueryGuard);
+    fn begin_query(&self) -> Self::Query;
 
-    fn enter_eval(&self) -> Self::EvalGuard;
+    fn exit_query(&self, guard: Self::Query);
 
-    fn exit_eval(&self, guard: Self::EvalGuard);
+    fn eval_scope(&self) -> EvalGuard<'_, Self, Self::Eval> {
+        let value = self.begin_eval();
+        EvalGuard {
+            metrics: self,
+            value: Some(value),
+        }
+    }
+
+    fn begin_eval(&self) -> Self::Eval;
+
+    fn end_eval(&self, guard: Self::Eval);
 }
 
 #[derive(Debug, Default)]
@@ -32,25 +53,25 @@ pub struct AtomicDuration {
 }
 
 impl Metrics for PerfMetrics {
-    type QueryGuard = Instant;
+    type Query = Instant;
 
-    type EvalGuard = Instant;
+    type Eval = Instant;
 
-    fn enter_query(&self) -> Self::QueryGuard {
+    fn begin_query(&self) -> Self::Query {
         self.query_count.fetch_add(1, Ordering::Relaxed);
         Instant::now()
     }
 
-    fn exit_query(&self, guard: Self::QueryGuard) {
+    fn exit_query(&self, guard: Self::Query) {
         self.query_time.add(guard.elapsed());
     }
 
-    fn enter_eval(&self) -> Self::EvalGuard {
+    fn begin_eval(&self) -> Self::Eval {
         self.eval_count.fetch_add(1, Ordering::Relaxed);
         Instant::now()
     }
 
-    fn exit_eval(&self, guard: Self::EvalGuard) {
+    fn end_eval(&self, guard: Self::Eval) {
         self.eval_time.add(guard.elapsed());
     }
 }
@@ -91,17 +112,17 @@ impl PerfMetrics {
 }
 
 impl Metrics for () {
-    type QueryGuard = ();
+    type Query = ();
 
-    type EvalGuard = ();
+    type Eval = ();
 
-    fn enter_query(&self) -> Self::QueryGuard {}
+    fn begin_query(&self) -> Self::Query {}
 
-    fn exit_query(&self, (): Self::QueryGuard) {}
+    fn exit_query(&self, (): Self::Query) {}
 
-    fn enter_eval(&self) -> Self::EvalGuard {}
+    fn begin_eval(&self) -> Self::Eval {}
 
-    fn exit_eval(&self, (): Self::EvalGuard) {}
+    fn end_eval(&self, (): Self::Eval) {}
 }
 
 impl AtomicDuration {
@@ -116,5 +137,49 @@ impl AtomicDuration {
 
     fn reset(&self) {
         self.ns.store(0, Ordering::Relaxed);
+    }
+}
+
+mod seal {
+    use crate::metrics::Metrics;
+
+    const VALUE_RESERVED_FOR_DROP: &str = "`Metrics` guard should be `Some` before `drop`";
+
+    #[derive(Debug)]
+    pub struct QueryGuard<'metrics, M, G>
+    where
+        M: Metrics<Query = G>,
+    {
+        pub(crate) metrics: &'metrics M,
+        pub(crate) value: Option<G>,
+    }
+
+    #[derive(Debug)]
+    pub struct EvalGuard<'metrics, M, G>
+    where
+        M: Metrics<Eval = G>,
+    {
+        pub(crate) metrics: &'metrics M,
+        pub(crate) value: Option<G>,
+    }
+
+    impl<M, G> Drop for QueryGuard<'_, M, G>
+    where
+        M: Metrics<Query = G>,
+    {
+        fn drop(&mut self) {
+            self.metrics
+                .exit_query(self.value.take().expect(VALUE_RESERVED_FOR_DROP));
+        }
+    }
+
+    impl<M, G> Drop for EvalGuard<'_, M, G>
+    where
+        M: Metrics<Eval = G>,
+    {
+        fn drop(&mut self) {
+            self.metrics
+                .end_eval(self.value.take().expect(VALUE_RESERVED_FOR_DROP));
+        }
     }
 }

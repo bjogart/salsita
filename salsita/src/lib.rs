@@ -1,14 +1,14 @@
+extern crate alloc;
+
+use crate::intern::MemoData;
 use crate::intern::MemoId;
-use crate::intern::RawId;
 use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
-use core::any::Any;
-use core::any::TypeId;
-use core::cell::Ref;
 use core::cell::RefCell;
-use std::collections::HashMap;
+use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::Ordering;
 
 pub mod intern;
 pub mod metrics;
@@ -18,47 +18,25 @@ mod tests;
 
 #[derive(Debug, Default)]
 pub struct Db<M> {
-    memo_index: MemoIndex,
-    memo_entries: MemoEntries<M>,
+    memos: RefCell<MemoData<M>>,
+    rev: GlobalRevision,
     active_queries: ActiveQueryStack,
     metrics: M,
 }
 
-#[derive(Debug, Default)]
-struct MemoIndex {
-    index: RefCell<HashMap<TypeId, PerQueryIndexAny>>,
-}
-
 #[derive(Debug)]
-struct PerQueryIndexAny {
-    query_index: Box<dyn Any>,
-}
+struct GlobalRevision(AtomicUsize);
 
-struct PerQueryIndex<Q>
-where
-    Q: Query,
-{
-    query_index: RefCell<HashMap<Q::Args, MemoId>>,
-}
-
-#[derive(Debug, Default)]
-struct MemoEntries<M> {
-    entries: RefCell<Vec<RefCell<MemoEntry<M>>>>,
-}
-
-#[derive(Debug)]
-struct MemoEntry<M> {
-    deps: Vec<MemoId>,
-    eval: fn(&Db<M>, &dyn Any) -> AnyValue,
-    value: Option<AnyValue>,
-}
-
-#[derive(Debug)]
-struct AnyValue(Box<dyn Any>);
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct Revision(usize);
 
 #[derive(Debug, Default)]
 struct ActiveQueryStack {
     ids: RefCell<Vec<MemoId>>,
+}
+
+struct PopActiveQuery<'stack> {
+    stack: &'stack ActiveQueryStack,
 }
 
 impl<M> Db<M>
@@ -73,211 +51,111 @@ where
     where
         I: Input,
     {
-        let memo_id = self.new_memo::<I>(InputId::from);
-        self.memo_entries
-            .entry_mut(memo_id, |entry| entry.set_value::<I>(value));
-        InputId::from(memo_id)
+        let rev = self.rev.get();
+        self.memos.borrow_mut().new_input::<I>(rev, value)
     }
 
     pub fn set_input<I>(&mut self, id: InputId<I>, value: I::Value)
     where
         I: Input,
     {
-        self.memo_entries
-            .entry_mut(id.memo_id(), |entry| entry.set_value::<I>(value));
+        let rev = self.rev.incr();
+        self.memos
+            .borrow_mut()
+            .memo_mut(id.memo_id())
+            .memoize_at::<I>(rev, value)
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
     {
-        let query_guard = self.metrics.enter_query();
-        let memo_id = self.get_or_alloc_memo::<Q>(args);
+        let _query_guard = self.metrics.query_scope();
+        let memo = self.memos.borrow_mut().intern_memo::<Q>(args);
+        self.resolve_memo(self.rev.get(), memo);
+        self.force_memo::<Q>(memo)
+    }
+
+    fn resolve_memo(&self, current_rev: Revision, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.active_query() {
-            self.memo_entries
-                .entry_mut(caller, |entry| entry.register_dep(memo_id));
+            self.memos.borrow_mut().memo_mut(caller).track_dep(memo_id);
         }
-        let has_value = self
-            .memo_entries
-            .entry(memo_id, |entry| entry.value.is_some());
-        let out = if has_value {
-            self.memo_entries.entry(memo_id, |entry| {
-                entry
-                    .value
-                    .as_ref()
-                    .expect("invariant: memo entry must have a value")
-                    .downcast::<Q>()
-                    .clone()
-            })
-        } else {
-            let eval = self.memo_entries.entry_mut(memo_id, |entry| {
-                entry.deps.clear();
-                entry.eval
-            });
-            self.active_queries.push_query(memo_id);
-            let eval_guard = self.metrics.enter_eval();
-            let out = eval(self, args).downcast::<Q>().clone();
-            self.metrics.exit_eval(eval_guard);
-            self.active_queries.pop_query();
-            out
+        let (last_verified, deps, has_value) = {
+            let last_verified = self.memos.borrow().memo(memo_id).last_verified();
+            if last_verified == current_rev {
+                return;
+            }
+            let memos = self.memos.borrow();
+            let memo = memos.memo(memo_id);
+            let deps = Box::<[MemoId]>::from(memo.deps());
+            (last_verified, deps, memo.has_value())
         };
-        self.metrics.exit_query(query_guard);
-        out
-    }
-
-    fn get_or_alloc_memo<Q>(&self, args: &Q::Args) -> MemoId
-    where
-        Q: Query,
-    {
-        self.memo_index
-            .memo::<Q>(args)
-            .unwrap_or_else(|| self.new_memo::<Q>(|_| args.clone()))
-    }
-
-    fn new_memo<Q>(&self, make_args: impl FnOnce(MemoId) -> Q::Args) -> MemoId
-    where
-        Q: Query,
-    {
-        let id = self.memo_entries.alloc_entry::<Q>();
-        self.memo_index.insert_memo::<Q>(make_args(id), id);
-        id
-    }
-}
-
-impl MemoIndex {
-    fn insert_memo<Q>(&self, args: Q::Args, id: MemoId)
-    where
-        Q: Query,
-    {
-        let Self { index } = self;
-        let mut index = index.borrow_mut();
-        let query_index_any = index
-            .entry(TypeId::of::<Q>())
-            .or_insert_with(PerQueryIndexAny::new::<Q>);
-        let PerQueryIndex { query_index } = query_index_any.downcast::<Q>();
-        query_index.borrow_mut().insert(args, id);
-    }
-
-    fn memo<Q>(&self, args: &Q::Args) -> Option<MemoId>
-    where
-        Q: Query,
-    {
-        let Self { index } = self;
-        let index = index.borrow();
-        let query_index_any = index.get(&TypeId::of::<Q>())?;
-        let PerQueryIndex { query_index } = query_index_any.downcast::<Q>();
-        query_index.borrow().get(args).copied()
-    }
-}
-
-impl PerQueryIndexAny {
-    fn new<Q>() -> Self
-    where
-        Q: Query,
-    {
-        Self {
-            query_index: Box::new(PerQueryIndex::<Q> {
-                query_index: RefCell::default(),
-            }),
+        let deps_postdate_self = deps
+            .into_iter()
+            .any(|dep| self.verify_dep(current_rev, last_verified, dep));
+        if !deps_postdate_self && has_value {
+            self.memos
+                .borrow_mut()
+                .memo_mut(memo_id)
+                .verify_at(current_rev);
+            return;
         }
-    }
-
-    fn downcast<Q>(&self) -> &PerQueryIndex<Q>
-    where
-        Q: Query,
-    {
-        self.query_index
-            .downcast_ref()
-            .unwrap_or_else(|| panic!("type cast failed"))
-    }
-}
-
-impl<M> MemoEntries<M>
-where
-    M: Metrics,
-{
-    fn alloc_entry<Q>(&self) -> MemoId
-    where
-        Q: Query,
-    {
-        let mut entries = self.entries.borrow_mut();
-        let raw_id = RawId::new(entries.len());
-        entries.push(RefCell::new(MemoEntry::new::<Q>()));
-        MemoId::from(raw_id)
-    }
-
-    fn entry_mut<T>(&self, id: MemoId, f: impl FnOnce(&mut MemoEntry<M>) -> T) -> T {
-        f(&mut self.entry_cell(id).borrow_mut())
-    }
-
-    fn entry<T>(&self, id: MemoId, f: impl FnOnce(&MemoEntry<M>) -> T) -> T {
-        f(&mut self.entry_cell(id).borrow())
-    }
-
-    fn entry_cell(&self, id: MemoId) -> Ref<'_, RefCell<MemoEntry<M>>> {
-        Ref::map(self.entries.borrow(), |entries| {
-            entries
-                .get(id.idx())
-                .unwrap_or_else(|| panic!("no entry for ID: {id:?}"))
-        })
-    }
-}
-
-impl<M> MemoEntry<M>
-where
-    M: Metrics,
-{
-    const fn new<Q>() -> Self
-    where
-        Q: Query,
-    {
-        return Self {
-            deps: Vec::new(),
-            eval: eval::<M, Q>,
-            value: None,
+        let (eval, args) = {
+            let mut memos = self.memos.borrow_mut();
+            let entry = memos.memo_mut(memo_id);
+            entry.untrack_deps();
+            (entry.eval, memos.args(memo_id))
         };
-
-        fn eval<M, Q>(db: &Db<M>, args: &dyn Any) -> AnyValue
-        where
-            M: Metrics,
-            Q: Query,
-        {
-            let args = args
-                .downcast_ref()
-                .unwrap_or_else(|| panic!("type cast failed"));
-            let out = Q::eval(db, args);
-            AnyValue::new::<Q>(out)
-        }
+        let _stack_len = self.active_queries.len();
+        let out = {
+            let _active_query_guard = self.active_queries.push_query(memo_id);
+            let _eval_guard = self.metrics.eval_scope();
+            eval(self, args.as_ref())
+        };
+        debug_assert_eq!(self.active_queries.len(), _stack_len);
+        self.memos
+            .borrow_mut()
+            .memo_mut(memo_id)
+            .memoize_at_any(current_rev, out);
     }
 
-    fn register_dep(&mut self, dep: MemoId) {
-        self.deps.push(dep);
+    fn verify_dep(&self, current_rev: Revision, memo_last_verified: Revision, dep: MemoId) -> bool {
+        self.resolve_memo(current_rev, dep);
+        self.memos.borrow().memo(dep).last_verified() > memo_last_verified
     }
 
-    fn set_value<Q>(&mut self, value: <Q>::Out)
+    fn force_memo<Q>(&self, memo: MemoId) -> <Q as Query>::Out
     where
         Q: Query,
     {
-        self.value = Some(AnyValue::new::<Q>(value))
+        self.memos
+            .borrow()
+            .memo(memo)
+            .value()
+            .downcast::<Q::Out>()
+            .clone()
     }
 }
 
-impl AnyValue {
-    fn new<Q>(value: Q::Out) -> Self
-    where
-        Q: Query,
-    {
-        Self(Box::new(value))
+impl GlobalRevision {
+    fn incr(&self) -> Revision {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        self.get()
     }
 
-    fn downcast<Q>(&self) -> &Q::Out
-    where
-        Q: Query,
-    {
-        self.0
-            .downcast_ref()
-            .unwrap_or_else(|| panic!("type cast failed"))
+    fn get(&self) -> Revision {
+        Revision(self.0.load(Ordering::Acquire))
     }
+}
+
+impl Default for GlobalRevision {
+    fn default() -> Self {
+        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0 + 1))
+    }
+}
+
+impl Revision {
+    const NEVER_VERIFIED: Self = Self(0);
 }
 
 impl ActiveQueryStack {
@@ -285,11 +163,18 @@ impl ActiveQueryStack {
         self.ids.borrow().last().copied()
     }
 
-    fn push_query(&self, id: MemoId) {
+    fn push_query(&self, id: MemoId) -> PopActiveQuery<'_> {
         self.ids.borrow_mut().push(id);
+        PopActiveQuery { stack: self }
     }
 
-    fn pop_query(&self) {
-        self.ids.borrow_mut().pop();
+    fn len(&self) -> usize {
+        self.ids.borrow().len()
+    }
+}
+
+impl Drop for PopActiveQuery<'_> {
+    fn drop(&mut self) {
+        self.stack.ids.borrow_mut().pop();
     }
 }
