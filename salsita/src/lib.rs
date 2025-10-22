@@ -81,12 +81,12 @@ where
             self.memos.borrow_mut().memo_mut(caller).track_dep(memo_id);
         }
         let (last_verified, deps, has_value) = {
-            let last_verified = self.memos.borrow().memo(memo_id).last_verified();
+            let memos = self.memos.borrow();
+            let memo = memos.memo(memo_id);
+            let last_verified = memo.last_verified();
             if last_verified == current_rev {
                 return;
             }
-            let memos = self.memos.borrow();
-            let memo = memos.memo(memo_id);
             (last_verified, memo.deps(), memo.has_value())
         };
         let deps_postdate_memo = deps
