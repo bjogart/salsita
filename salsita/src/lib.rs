@@ -1,7 +1,7 @@
 extern crate alloc;
 
-use crate::intern::MemoData;
-use crate::intern::MemoId;
+use crate::memo::MemoData;
+use crate::memo::MemoId;
 use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
@@ -10,7 +10,7 @@ use core::cell::RefCell;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
-pub mod intern;
+pub mod memo;
 pub mod metrics;
 pub mod query;
 #[cfg(test)]
