@@ -59,7 +59,7 @@ where
     where
         I: Input,
     {
-        let rev = self.rev.incr();
+        let rev = self.rev.bump();
         self.memos
             .borrow_mut()
             .memo_mut(id.memo_id())
@@ -141,7 +141,7 @@ where
 }
 
 impl GlobalRevision {
-    fn incr(&self) -> Revision {
+    fn bump(&self) -> Revision {
         self.0.fetch_add(1, Ordering::AcqRel);
         self.get()
     }
