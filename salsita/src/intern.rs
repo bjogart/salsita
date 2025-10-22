@@ -46,14 +46,11 @@ struct ArgsId {
 
 #[derive(Debug)]
 pub(crate) struct MemoEntry<M> {
-    pub(crate) eval: fn(&Db<M>, &dyn Any) -> AnyValue,
+    pub(crate) eval: fn(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>,
     deps: Vec<MemoId>,
     last_verified: Revision,
-    value: Option<AnyValue>,
+    value: Option<Box<dyn Any>>,
 }
-
-#[derive(Debug)]
-pub(crate) struct AnyValue(Box<dyn Any>);
 
 impl<M> MemoData<M>
 where
@@ -175,20 +172,20 @@ where
         Q: Query,
     {
         return Self {
+            eval: eval::<M, Q>,
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
-            eval: eval::<M, Q>,
             value: None,
         };
 
-        fn eval<M, Q>(db: &Db<M>, args: &dyn Any) -> AnyValue
+        fn eval<M, Q>(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>
         where
             M: Metrics,
             Q: Query,
         {
             let args = args.downcast_ref().expect(TYPE_CAST_FAILED);
             let out = Q::eval(db, args);
-            AnyValue::new::<Q::Out>(out)
+            Box::new(out)
         }
     }
 
@@ -200,8 +197,8 @@ where
         self.deps.clear();
     }
 
-    pub(crate) fn deps(&self) -> &[MemoId] {
-        &self.deps
+    pub(crate) fn deps(&self) -> Box<[MemoId]> {
+        Box::from(self.deps.as_slice())
     }
 
     pub(crate) const fn last_verified(&self) -> Revision {
@@ -216,35 +213,26 @@ where
     where
         Q: Query,
     {
-        self.memoize_at_any(rev, AnyValue::new::<Q::Out>(value));
+        self.memoize_at_any(rev, Box::new(value));
     }
 
-    pub(crate) fn memoize_at_any(&mut self, rev: Revision, value: AnyValue) {
+    pub(crate) fn memoize_at_any(&mut self, rev: Revision, value: Box<dyn Any>) {
         self.verify_at(rev);
         self.value = Some(value);
     }
 
-    pub(crate) const fn value(&self) -> &AnyValue {
-        self.value.as_ref().expect("value not memoized")
+    pub(crate) fn value<T>(&self) -> &T
+    where
+        T: 'static,
+    {
+        self.value
+            .as_ref()
+            .expect("value not memoized")
+            .downcast_ref()
+            .expect(TYPE_CAST_FAILED)
     }
 
     pub(crate) const fn verify_at(&mut self, rev: Revision) {
         self.last_verified = rev;
-    }
-}
-
-impl AnyValue {
-    pub(crate) fn new<T>(value: T) -> Self
-    where
-        T: 'static,
-    {
-        Self(Box::new(value))
-    }
-
-    pub(crate) fn downcast<T>(&self) -> &T
-    where
-        T: 'static,
-    {
-        self.0.downcast_ref().expect(TYPE_CAST_FAILED)
     }
 }
