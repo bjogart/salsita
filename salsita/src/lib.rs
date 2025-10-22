@@ -133,7 +133,7 @@ where
         self.memos.borrow().memo(dep).last_verified() > memo_last_verified
     }
 
-    fn memoized_value<Q>(&self, memo_id: MemoId) -> <Q as Query>::Out
+    fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
     where
         Q: Query,
     {
