@@ -20,7 +20,7 @@ const TYPE_CAST_FAILED: &str = "type cast failed";
 #[derive(Debug, Default)]
 pub(crate) struct MemoData<M> {
     print_hasher: FingerprintHasher,
-    args_index: HashMap<Fingerprint, Bucket, FingerprintHasher>,
+    args_index: HashMap<Fingerprint, Bucket>,
     args_items: Vec<Rc<dyn Any>>,
     memos: HashMap<MemoId, MemoEntry<M>>,
 }
