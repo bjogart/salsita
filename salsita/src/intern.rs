@@ -81,7 +81,7 @@ where
         input_id
     }
 
-    pub(crate) fn intern_memo<Q>(&mut self, args: &Q::Args) -> MemoId
+    pub(crate) fn intern_query<Q>(&mut self, args: &Q::Args) -> MemoId
     where
         Q: Query,
     {

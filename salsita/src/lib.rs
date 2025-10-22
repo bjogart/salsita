@@ -71,12 +71,12 @@ where
         Q: Query,
     {
         let _query_guard = self.metrics.query_scope();
-        let memo = self.memos.borrow_mut().intern_memo::<Q>(args);
-        self.resolve_memo(self.rev.get(), memo);
-        self.force_memo::<Q>(memo)
+        let memo_id = self.memos.borrow_mut().intern_query::<Q>(args);
+        self.verify_memo(self.rev.get(), memo_id);
+        self.cloned_memo_value::<Q>(memo_id)
     }
 
-    fn resolve_memo(&self, current_rev: Revision, memo_id: MemoId) {
+    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.active_query() {
             self.memos.borrow_mut().memo_mut(caller).track_dep(memo_id);
         }
@@ -90,16 +90,20 @@ where
             let deps = Box::<[MemoId]>::from(memo.deps());
             (last_verified, deps, memo.has_value())
         };
-        let deps_postdate_self = deps
+        let deps_postdate_memo = deps
             .into_iter()
-            .any(|dep| self.verify_dep(current_rev, last_verified, dep));
-        if !deps_postdate_self && has_value {
+            .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
+        if !deps_postdate_memo && has_value {
             self.memos
                 .borrow_mut()
                 .memo_mut(memo_id)
                 .verify_at(current_rev);
             return;
         }
+        self.eval_memo(current_rev, memo_id);
+    }
+
+    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
         let (eval, args) = {
             let mut memos = self.memos.borrow_mut();
             let entry = memos.memo_mut(memo_id);
@@ -119,18 +123,23 @@ where
             .memoize_at_any(current_rev, out);
     }
 
-    fn verify_dep(&self, current_rev: Revision, memo_last_verified: Revision, dep: MemoId) -> bool {
-        self.resolve_memo(current_rev, dep);
+    fn dep_postdates_rev(
+        &self,
+        current_rev: Revision,
+        memo_last_verified: Revision,
+        dep: MemoId,
+    ) -> bool {
+        self.verify_memo(current_rev, dep);
         self.memos.borrow().memo(dep).last_verified() > memo_last_verified
     }
 
-    fn force_memo<Q>(&self, memo: MemoId) -> <Q as Query>::Out
+    fn cloned_memo_value<Q>(&self, memo_id: MemoId) -> <Q as Query>::Out
     where
         Q: Query,
     {
         self.memos
             .borrow()
-            .memo(memo)
+            .memo(memo_id)
             .value()
             .downcast::<Q::Out>()
             .clone()
