@@ -60,10 +60,11 @@ where
         I: Input,
     {
         let rev = self.rev.bump();
-        self.memos
-            .borrow_mut()
-            .memo_mut(id.memo_id())
-            .memoize_at::<I>(rev, value);
+        let mut memos = self.memos.borrow_mut();
+        let memo = memos.memo_mut(id.memo_id());
+        memo.value = Some(Box::new(value));
+        memo.last_verified = rev;
+        memo.last_changed = rev;
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
@@ -78,25 +79,24 @@ where
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.active_query() {
-            self.memos.borrow_mut().memo_mut(caller).track_dep(memo_id);
+            self.memos.borrow_mut().memo_mut(caller).deps.push(memo_id);
         }
         let (last_verified, deps, has_value) = {
             let memos = self.memos.borrow();
             let memo = memos.memo(memo_id);
-            let last_verified = memo.last_verified();
+            let last_verified = memo.last_verified;
             if last_verified == current_rev {
                 return;
             }
-            (last_verified, memo.deps(), memo.has_value())
+            let deps = memo.deps.clone();
+            let has_value = memo.value.is_some();
+            (last_verified, deps, has_value)
         };
         let deps_postdate_memo = deps
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && has_value {
-            self.memos
-                .borrow_mut()
-                .memo_mut(memo_id)
-                .verify_at(current_rev);
+            self.memos.borrow_mut().memo_mut(memo_id).last_verified = current_rev;
             return;
         }
         self.eval_memo(current_rev, memo_id);
@@ -105,9 +105,9 @@ where
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
         let (eval, args) = {
             let mut memos = self.memos.borrow_mut();
-            let entry = memos.memo_mut(memo_id);
-            entry.untrack_deps();
-            (entry.eval, memos.args(memo_id))
+            let memo = memos.memo_mut(memo_id);
+            memo.deps.clear();
+            (memo.eval, memos.args(memo_id))
         };
         let _stack_len = self.active_queries.len();
         let out = {
@@ -116,10 +116,16 @@ where
             eval(self, args.as_ref())
         };
         debug_assert_eq!(self.active_queries.len(), _stack_len);
-        self.memos
-            .borrow_mut()
-            .memo_mut(memo_id)
-            .memoize_at_any(current_rev, out)
+        let mut memos = self.memos.borrow_mut();
+        let memo = memos.memo_mut(memo_id);
+        memo.last_verified = current_rev;
+        if let Some(prev) = memo.value.as_ref()
+            && (memo.eq)(out.as_ref(), prev.as_ref())
+        {
+            return;
+        }
+        memo.last_changed = current_rev;
+        memo.value = Some(out);
     }
 
     fn dep_postdates_rev(
@@ -129,7 +135,7 @@ where
         dep: MemoId,
     ) -> bool {
         self.verify_memo(current_rev, dep);
-        self.memos.borrow().memo(dep).last_changed() > memo_last_verified
+        self.memos.borrow().memo(dep).last_changed > memo_last_verified
     }
 
     fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
