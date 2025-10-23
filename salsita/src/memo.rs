@@ -125,12 +125,15 @@ where
         A: Eq + 'static,
     {
         bucket.0.iter().find_map(|id| {
-            let stored = args_items
+            if let Some(stored) = args_items
                 .get(id.idx)
                 .expect(NO_SUCH_ITEM)
                 .downcast_ref::<A>()
-                .expect(TYPE_CAST_FAILED);
-            (args == stored).then_some(*id)
+                && args == stored
+            {
+                return Some(*id);
+            }
+            None
         })
     }
 
@@ -163,7 +166,7 @@ impl Fingerprint {
     where
         T: Hash + 'static,
     {
-        Self(hash_builder.hash_one((TypeId::of::<T>(), value)))
+        Self(hash_builder.hash_one(value))
     }
 }
 
