@@ -48,10 +48,10 @@ struct ArgsId {
 pub(crate) struct MemoEntry<M> {
     pub(crate) eval: fn(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>,
     pub(crate) eq: fn(a: &dyn Any, b: &dyn Any) -> bool,
-    deps: Vec<MemoId>,
-    last_verified: Revision,
-    last_changed: Revision,
-    value: Option<Box<dyn Any>>,
+    pub(crate) deps: Vec<MemoId>,
+    pub(crate) last_verified: Revision,
+    pub(crate) last_changed: Revision,
+    pub(crate) value: Option<Box<dyn Any>>,
 }
 
 impl<M> MemoData<M>
@@ -74,7 +74,9 @@ where
         debug_assert_eq!(args_id, dup_args_id);
 
         let mut entry = MemoEntry::new::<I>();
-        entry.memoize_at::<I>(rev, value);
+        entry.value = Some(Box::new(value));
+        entry.last_verified = rev;
+        entry.last_changed = rev;
         self.memos.insert(memo_id, entry);
 
         input_id
@@ -201,48 +203,6 @@ where
         }
     }
 
-    pub(crate) fn track_dep(&mut self, dep: MemoId) {
-        self.deps.push(dep);
-    }
-
-    pub(crate) fn untrack_deps(&mut self) {
-        self.deps.clear();
-    }
-
-    pub(crate) fn deps(&self) -> Box<[MemoId]> {
-        Box::from(self.deps.as_slice())
-    }
-
-    pub(crate) const fn last_verified(&self) -> Revision {
-        self.last_verified
-    }
-
-    pub(crate) const fn last_changed(&self) -> Revision {
-        self.last_changed
-    }
-
-    pub(crate) const fn has_value(&self) -> bool {
-        self.value.is_some()
-    }
-
-    pub(crate) fn memoize_at<Q>(&mut self, rev: Revision, value: Q::Out)
-    where
-        Q: Query,
-    {
-        self.memoize_at_any(rev, Box::new(value));
-    }
-
-    pub(crate) fn memoize_at_any(&mut self, rev: Revision, value: Box<dyn Any>) {
-        self.verify_at(rev);
-        if let Some(prev) = self.value.as_ref()
-            && (self.eq)(value.as_ref(), prev.as_ref())
-        {
-            return;
-        }
-        self.change_at(rev);
-        self.value = Some(value);
-    }
-
     pub(crate) fn value<T>(&self) -> &T
     where
         T: 'static,
@@ -252,13 +212,5 @@ where
             .expect("value not memoized")
             .downcast_ref()
             .expect(TYPE_CAST_FAILED)
-    }
-
-    pub(crate) const fn verify_at(&mut self, rev: Revision) {
-        self.last_verified = rev;
-    }
-
-    const fn change_at(&mut self, rev: Revision) {
-        self.last_changed = rev;
     }
 }
