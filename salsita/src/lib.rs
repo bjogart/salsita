@@ -107,7 +107,7 @@ where
             let mut memos = self.memos.borrow_mut();
             let memo = memos.memo_mut(memo_id);
             memo.deps.clear();
-            (memo.eval, memos.args(memo_id))
+            (memo.eval, memos.interned(memo_id.args()))
         };
         let _stack_len = self.active_queries.len();
         let out = {
