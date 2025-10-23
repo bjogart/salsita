@@ -13,15 +13,14 @@ use core::hash::Hash;
 use std::collections::HashMap;
 use std::hash::RandomState;
 
-const NO_SUCH_ITEM: &str =
-    "`Id` not in in Interner. This is probably due to cross-contamination from multiple `Db`s.";
+const NO_SUCH_ITEM: &str = "`Id` not in in `MemoData`";
 const TYPE_CAST_FAILED: &str = "type cast failed";
 
 #[derive(Debug, Default)]
 pub(crate) struct MemoData<M> {
     print_hasher: FingerprintHasher,
-    args_index: HashMap<Fingerprint, Bucket>,
-    args_items: Vec<Rc<dyn Any>>,
+    index: HashMap<Fingerprint, Bucket>,
+    values: Vec<Rc<dyn Any>>,
     memos: HashMap<MemoId, MemoEntry<M>>,
 }
 
@@ -31,16 +30,16 @@ struct Fingerprint(u64);
 type FingerprintHasher = RandomState;
 
 #[derive(Debug, Default)]
-struct Bucket(Vec<ArgsId>);
+struct Bucket(Vec<InternId>);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct MemoId {
     query: TypeId,
-    args_id: ArgsId,
+    args: InternId,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-struct ArgsId {
+pub(crate) struct InternId {
     idx: usize,
 }
 
@@ -62,16 +61,13 @@ where
     where
         I: Input,
     {
-        let args_id = ArgsId {
-            idx: self.args_items.len(),
-        };
-        let memo_id = MemoId {
-            query: TypeId::of::<I>(),
-            args_id,
-        };
+        let idx = self.values.len();
+        let args = InternId { idx };
+        let query = TypeId::of::<I>();
+        let memo_id = MemoId { query, args };
         let input_id = InputId::from(memo_id);
-        let dup_args_id = self.intern_args(&input_id);
-        debug_assert_eq!(args_id, dup_args_id);
+        let _args = self.intern_value(&input_id);
+        debug_assert_eq!(args, _args);
 
         let mut entry = MemoEntry::new::<I>();
         entry.value = Some(Box::new(value));
@@ -86,61 +82,63 @@ where
     where
         Q: Query,
     {
-        let args_id = self.intern_args(args);
-        let memo_id = MemoId {
-            query: TypeId::of::<Q>(),
-            args_id,
-        };
+        let query = TypeId::of::<Q>();
+        let args = self.intern_value(args);
+        let memo_id = MemoId { query, args };
         self.memos
             .entry(memo_id)
             .or_insert_with(MemoEntry::new::<Q>);
         memo_id
     }
 
-    fn intern_args<A>(&mut self, args: &A) -> ArgsId
+    fn intern_value<T>(&mut self, value: &T) -> InternId
     where
-        A: Clone + Eq + Hash + 'static,
+        T: Clone + Eq + Hash + 'static,
     {
-        let bucket = Self::args_bucket(&self.print_hasher, &mut self.args_index, args);
-        match Self::bucket_entry::<A>(&self.args_items, bucket, args) {
+        let bucket = Self::find_bucket(&self.print_hasher, &mut self.index, value);
+        match Self::intern_id::<T>(bucket, &self.values, value) {
             Some(id) => id,
-            None => Self::insert_args(&mut self.args_items, bucket, args),
+            None => Self::insert_value_in_bucket(bucket, &mut self.values, value),
         }
     }
 
-    fn args_bucket<'index, A>(
+    fn find_bucket<'index, T>(
         hash_builder: &FingerprintHasher,
-        args_index: &'index mut HashMap<Fingerprint, Bucket>,
-        args: &A,
+        index: &'index mut HashMap<Fingerprint, Bucket>,
+        value: &T,
     ) -> &'index mut Bucket
     where
-        A: Hash + 'static,
+        T: Hash + 'static,
     {
-        let print = Fingerprint::new(hash_builder, args);
-        args_index.entry(print).or_default()
+        let print = Fingerprint::new(hash_builder, value);
+        index.entry(print).or_default()
     }
 
-    fn bucket_entry<A>(args_items: &[Rc<dyn Any>], bucket: &Bucket, args: &A) -> Option<ArgsId>
+    fn intern_id<T>(bucket: &Bucket, values: &[Rc<dyn Any>], value: &T) -> Option<InternId>
     where
-        A: Eq + 'static,
+        T: Eq + 'static,
     {
         bucket.0.iter().find_map(|id| {
-            let stored = args_items
-                .get(id.idx)
-                .expect(NO_SUCH_ITEM)
-                .downcast_ref::<A>()
-                .expect(TYPE_CAST_FAILED);
-            (args == stored).then_some(*id)
+            if let Some(stored) = Self::interned_ref(values, *id).downcast_ref::<T>()
+                && value == stored
+            {
+                return Some(*id);
+            }
+            None
         })
     }
 
-    fn insert_args<A>(args_items: &mut Vec<Rc<dyn Any>>, bucket: &mut Bucket, args: &A) -> ArgsId
+    fn insert_value_in_bucket<T>(
+        bucket: &mut Bucket,
+        values: &mut Vec<Rc<dyn Any>>,
+        value: &T,
+    ) -> InternId
     where
-        A: Clone + Eq + Hash + 'static,
+        T: Clone + 'static,
     {
-        let idx = args_items.len();
-        let id = ArgsId { idx };
-        args_items.push(Rc::new(args.clone()));
+        let idx = values.len();
+        let id = InternId { idx };
+        values.push(Rc::new(value.clone()));
         bucket.0.push(id);
         id
     }
@@ -153,8 +151,12 @@ where
         self.memos.get(&id).expect(NO_SUCH_ITEM)
     }
 
-    pub(crate) fn args(&self, id: MemoId) -> Rc<dyn Any> {
-        Rc::clone(self.args_items.get(id.args_id.idx).expect(NO_SUCH_ITEM))
+    pub(crate) fn interned(&self, id: InternId) -> Rc<dyn Any> {
+        Rc::clone(Self::interned_ref(&self.values, id))
+    }
+
+    fn interned_ref(values: &[Rc<dyn Any>], id: InternId) -> &Rc<dyn Any> {
+        values.get(id.idx).expect(NO_SUCH_ITEM)
     }
 }
 
@@ -163,7 +165,7 @@ impl Fingerprint {
     where
         T: Hash + 'static,
     {
-        Self(hash_builder.hash_one((TypeId::of::<T>(), value)))
+        Self(hash_builder.hash_one(value))
     }
 }
 
@@ -212,5 +214,11 @@ where
             .expect("value not memoized")
             .downcast_ref()
             .expect(TYPE_CAST_FAILED)
+    }
+}
+
+impl MemoId {
+    pub(crate) const fn args(self) -> InternId {
+        self.args
     }
 }
