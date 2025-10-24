@@ -7,7 +7,7 @@ use core::hash::Hash;
 use std::collections::HashMap;
 use std::hash::RandomState;
 
-const UNKNOWN_ID: &str = "`InternId` not in `self.values`";
+const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
 pub(crate) struct Interner {

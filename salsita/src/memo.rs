@@ -6,12 +6,12 @@ use crate::query::Input;
 use crate::query::Query;
 use core::any::Any;
 use core::any::TypeId;
+use core::any::type_name;
 use core::fmt::Debug;
 use core::hash::Hash;
 use std::collections::HashMap;
 
-const UNKNOWN_ID: &str = "`MemoId` not in in `Memos`";
-const TYPE_CAST_FAILED: &str = "type cast failed";
+const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
 pub(crate) struct Memos<M> {
@@ -100,7 +100,7 @@ where
             M: Metrics,
             Q: Query,
         {
-            let args = args.downcast_ref().expect(TYPE_CAST_FAILED);
+            let args = downcast_ref(args);
             let out = Q::eval(db, args);
             Box::new(out)
         }
@@ -109,8 +109,7 @@ where
         where
             T: Eq + 'static,
         {
-            a.downcast_ref::<T>().expect(TYPE_CAST_FAILED)
-                == b.downcast_ref::<T>().expect(TYPE_CAST_FAILED)
+            downcast_ref::<T>(a) == downcast_ref(b)
         }
     }
 
@@ -120,10 +119,21 @@ where
     {
         self.value
             .as_ref()
-            .expect("value not memoized")
-            .downcast_ref()
-            .expect(TYPE_CAST_FAILED)
+            .map(|value| downcast_ref(value.as_ref()))
+            .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
     }
+}
+
+fn downcast_ref<T>(value: &dyn Any) -> &T
+where
+    T: 'static,
+{
+    value.downcast_ref().unwrap_or_else(|| {
+        panic!(
+            "bug (type mismatch): expected `{}` but found different type (possible database mix-up)",
+            type_name::<T>()
+        )
+    })
 }
 
 impl MemoId {
