@@ -1,7 +1,8 @@
 extern crate alloc;
 
-use crate::memo::MemoData;
+use crate::intern::Interner;
 use crate::memo::MemoId;
+use crate::memo::Memos;
 use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
@@ -10,6 +11,7 @@ use core::cell::RefCell;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
+mod intern;
 pub mod memo;
 pub mod metrics;
 pub mod query;
@@ -18,7 +20,8 @@ mod tests;
 
 #[derive(Debug, Default)]
 pub struct Db<M> {
-    memos: RefCell<MemoData<M>>,
+    interner: RefCell<Interner>,
+    memos: RefCell<Memos<M>>,
     rev: GlobalRevision,
     active_queries: ActiveQueryStack,
     metrics: M,
@@ -52,7 +55,11 @@ where
         I: Input,
     {
         let rev = self.rev.get();
-        self.memos.borrow_mut().new_input::<I>(rev, value)
+        let mut interner = self.interner.borrow_mut();
+        interner.intern_input_id(|args_id| {
+            let memo_id = self.memos.borrow_mut().new_input::<I>(rev, args_id, value);
+            InputId::from(memo_id)
+        })
     }
 
     pub fn set_input<I>(&mut self, id: InputId<I>, value: I::Value)
@@ -72,7 +79,8 @@ where
         Q: Query,
     {
         let _query_guard = self.metrics.query_scope();
-        let memo_id = self.memos.borrow_mut().intern_query::<Q>(args);
+        let args_id = self.interner.borrow_mut().intern(args);
+        let memo_id = self.memos.borrow_mut().intern::<Q>(args_id);
         self.verify_memo(self.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
@@ -103,12 +111,13 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        let (eval, args) = {
+        let eval = {
             let mut memos = self.memos.borrow_mut();
             let memo = memos.memo_mut(memo_id);
             memo.deps.clear();
-            (memo.eval, memos.interned(memo_id.args()))
+            memo.eval
         };
+        let args = self.interner.borrow().interned(memo_id.args());
         let _stack_len = self.active_queries.len();
         let out = {
             let _active_query_guard = self.active_queries.push_query(memo_id);
