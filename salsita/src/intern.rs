@@ -30,22 +30,17 @@ pub(crate) struct InternId {
 }
 
 impl Interner {
-    pub(crate) fn intern_reserved_input<I>(&mut self, input: InputId<I>)
+    pub(crate) fn intern_input_id<I>(
+        &mut self,
+        f: impl FnOnce(InternId) -> InputId<I>,
+    ) -> InputId<I>
     where
         I: Input,
     {
-        let Bucket(bucket) = Self::find_bucket(&self.print_hasher, &mut self.index, &input);
-        bucket.push(input.memo_id().args());
-        *self
-            .values
-            .get_mut(input.memo_id().args().idx)
-            .expect(UNKNOWN_ID) = Rc::new(input);
-    }
-
-    pub(crate) fn reserve_input_slot(&mut self) -> InternId {
         let idx = self.values.len();
-        self.values.push(Rc::new(()));
-        InternId { idx }
+        let input_id = f(InternId { idx });
+        self.intern(&input_id);
+        input_id
     }
 
     pub(crate) fn intern<T>(&mut self, value: &T) -> InternId

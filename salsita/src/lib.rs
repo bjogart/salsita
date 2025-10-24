@@ -56,11 +56,10 @@ where
     {
         let rev = self.rev.get();
         let mut interner = self.interner.borrow_mut();
-        let args_id = interner.reserve_input_slot();
-        let memo_id = self.memos.borrow_mut().new_input::<I>(rev, args_id, value);
-        let input_id = InputId::from(memo_id);
-        interner.intern_reserved_input(input_id);
-        input_id
+        interner.intern_input_id(|args_id| {
+            let memo_id = self.memos.borrow_mut().new_input::<I>(rev, args_id, value);
+            InputId::from(memo_id)
+        })
     }
 
     pub fn set_input<I>(&mut self, id: InputId<I>, value: I::Value)
