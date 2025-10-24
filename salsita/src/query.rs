@@ -26,15 +26,6 @@ pub struct InputId<I>(MemoId, PhantomData<I>)
 where
     I: Input;
 
-impl<I> InputId<I>
-where
-    I: Input,
-{
-    pub(crate) const fn memo_id(self) -> MemoId {
-        self.0
-    }
-}
-
 impl<I> Query for I
 where
     I: Input,
@@ -48,6 +39,15 @@ where
         M: Metrics,
     {
         panic!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
+    }
+}
+
+impl<I> InputId<I>
+where
+    I: Input,
+{
+    pub(crate) const fn memo_id(self) -> MemoId {
+        self.0
     }
 }
 
