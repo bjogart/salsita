@@ -19,7 +19,7 @@ pub trait Query: 'static {
 }
 
 pub trait Input: 'static {
-    type Value: Clone + Eq;
+    type Value: Clone + Eq + Hash;
 }
 
 pub struct InputId<I>(MemoId, PhantomData<I>)
