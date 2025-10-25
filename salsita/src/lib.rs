@@ -23,6 +23,11 @@ pub struct Db<M = ()> {
     global: GlobalState<M>,
 }
 
+#[derive(Debug)]
+pub struct Snapshot<M> {
+    marker: core::marker::PhantomData<M>,
+}
+
 #[derive(Debug, Default)]
 struct GlobalState<M> {
     rev: GlobalRevision,
@@ -81,6 +86,12 @@ where
         memo.value = Some(Box::new(value));
         memo.last_verified = rev;
         memo.last_changed = rev;
+    }
+
+    pub const fn snapshot(&self) -> Snapshot<M> {
+        Snapshot {
+            marker: core::marker::PhantomData,
+        }
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
