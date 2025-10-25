@@ -1,14 +1,17 @@
 use crate::Db;
+use crate::Snapshot;
 use crate::metrics::Metrics;
 use crate::metrics::PerfMetrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
 use core::fmt::Debug;
+use std::sync::mpsc::channel;
+use std::thread;
 
 #[test]
 fn db_starts_empty() {
-    assert_eq!(metrics_snapshot(&Db::default()), (0, 0,));
+    assert_eq!(metrics_snapshot(&Db::default().snapshot()), (0, 0,));
 }
 
 #[test]
@@ -63,6 +66,26 @@ fn propagation_updates_transitive_dependents() {
     assert_query_delta::<PriceWithVat>(&db, &(price, count), 35, 1, 0);
     db.set_input(price, 4);
     assert_query_delta::<PriceWithVat>(&db, &(price, count), 23, 5, 3);
+}
+
+#[test]
+fn modifications_are_blocked_until_snapshots_drop() {
+    let mut db: Db<()> = Db::default();
+    let (sender, receiver) = channel::<Snapshot<()>>();
+    let price = db.new_input::<BurritoPrice>(8);
+    assert_eq!(db.snapshot().query::<BurritoPrice>(&price), 8);
+    let handle = thread::spawn({
+        let snapshot = db.snapshot();
+        move || {
+            assert_eq!(snapshot.query::<BurritoPrice>(&price), 8);
+            std::mem::drop(snapshot);
+            let snapshot = receiver.recv().unwrap();
+            assert_eq!(snapshot.query::<BurritoPrice>(&price), 4);
+        }
+    });
+    db.set_input(price, 4);
+    sender.send(db.snapshot()).unwrap();
+    handle.join().unwrap();
 }
 
 fn init_queries(
@@ -146,15 +169,16 @@ fn assert_query_delta<Q>(
     Q: Query,
     Q::Out: Eq + Debug,
 {
-    let (q_before, e_before) = metrics_snapshot(db);
-    let out = db.query::<Q>(args);
+    let snapshot = db.snapshot();
+    let (q_before, e_before) = metrics_snapshot(&snapshot);
+    let out = snapshot.query::<Q>(args);
     assert_eq!(out, exp_out);
-    let (q_after, e_after) = metrics_snapshot(db);
+    let (q_after, e_after) = metrics_snapshot(&snapshot);
     assert_eq!((q_after - q_before, e_after - e_before), (dq, de));
 }
 
-fn metrics_snapshot(db: &Db<PerfMetrics>) -> (usize, usize) {
-    let m = db.metrics();
+fn metrics_snapshot(snapshot: &Snapshot<PerfMetrics>) -> (usize, usize) {
+    let m = snapshot.metrics();
     (m.query_count(), m.eval_count())
 }
 
@@ -168,11 +192,11 @@ impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
     type Out = usize;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
-        db.query::<BurritoPrice>(args) + 2
+        snapshot.query::<BurritoPrice>(args) + 2
     }
 }
 
@@ -186,12 +210,12 @@ impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = usize;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
         let (price, count) = args;
-        db.query::<BurritoPriceWithShipping>(price) * db.query::<BurritoCount>(count)
+        snapshot.query::<BurritoPriceWithShipping>(price) * snapshot.query::<BurritoCount>(count)
     }
 }
 
@@ -200,11 +224,11 @@ impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = usize;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
-        db.query::<TotalPrice>(args) + 5
+        snapshot.query::<TotalPrice>(args) + 5
     }
 }
 
@@ -218,11 +242,11 @@ impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
     type Out = usize;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
         let (burrito_salsa, count) = args;
-        db.query::<BurritoCount>(count) * db.query::<SalsaPerBurrito>(burrito_salsa)
+        snapshot.query::<BurritoCount>(count) * snapshot.query::<SalsaPerBurrito>(burrito_salsa)
     }
 }

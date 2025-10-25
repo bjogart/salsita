@@ -1,5 +1,5 @@
-use crate::Db;
 use crate::Revision;
+use crate::Snapshot;
 use crate::intern::InternId;
 use crate::metrics::Metrics;
 use crate::query::Input;
@@ -26,7 +26,8 @@ pub(crate) struct MemoId {
 
 #[derive(Debug)]
 pub(crate) struct MemoEntry<M> {
-    pub(crate) eval: fn(db: &Db<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
+    pub(crate) eval:
+        fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
     pub(crate) eq: fn(a: &(dyn Any + Send + Sync), b: &(dyn Any + Send + Sync)) -> bool,
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
@@ -95,13 +96,16 @@ where
             value: None,
         };
 
-        fn eval<M, Q>(db: &Db<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>
+        fn eval<M, Q>(
+            snapshot: &Snapshot<M>,
+            args: &(dyn Any + Send + Sync),
+        ) -> Box<dyn Any + Send + Sync>
         where
             M: Metrics,
             Q: Query,
         {
             let args = downcast_ref(args);
-            let out = Q::eval(db, args);
+            let out = Q::eval(snapshot, args);
             Box::new(out)
         }
 
