@@ -10,7 +10,7 @@ use core::hash::Hasher;
 use core::marker::PhantomData;
 
 pub trait Query: 'static {
-    type Args: Clone + Eq + Hash;
+    type Args: Clone + Eq + Hash + Send + Sync;
     type Out: Clone + Eq;
 
     fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
@@ -18,8 +18,8 @@ pub trait Query: 'static {
         M: Metrics;
 }
 
-pub trait Input: 'static {
-    type Value: Clone + Eq + Hash;
+pub trait Input: Send + Sync + 'static {
+    type Value: Clone + Eq + Hash + Send + Sync;
 }
 
 pub struct InputId<I>(MemoId, PhantomData<I>)
