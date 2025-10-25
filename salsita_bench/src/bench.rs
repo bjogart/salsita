@@ -201,7 +201,7 @@ struct Timings {
     query: u64,
     /// Sum of time spent executing `Query::eval` across the whole call tree.
     /// Because `Query::eval` implementations may recursively call
-    /// `db.query::<...>` (and those queries may themselves call `eval`),
+    /// `snapshot.query::<...>` (and those queries may themselves call `eval`),
     /// `eval_time_ns` includes the nested `eval` time in the entire evaluation
     /// tree. In other words, `eval_time_ns` is the total CPU time spent
     /// *inside* `eval` implementations.
@@ -600,28 +600,28 @@ where
             |_| {},
             |db, ()| {
                 let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs)
+                db.snapshot().query::<Sink>(&inputs)
             },
             exp_cold,
         ),
         memo: bench_scenario::<N, _, _>(
             |db| {
                 let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs);
+                db.snapshot().query::<Sink>(&inputs);
                 inputs
             },
-            |db, inputs| db.query::<Sink>(&inputs),
+            |db, inputs| db.snapshot().query::<Sink>(&inputs),
             exp_cold,
         ),
         update: bench_scenario::<N, _, _>(
             |db| {
                 let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs);
+                db.snapshot().query::<Sink>(&inputs);
                 inputs
             },
             |db, inputs| {
                 update_inputs(db, &inputs);
-                db.query::<Sink>(&inputs)
+                db.snapshot().query::<Sink>(&inputs)
             },
             exp_update,
         ),

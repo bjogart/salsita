@@ -2,7 +2,7 @@
 
 use core::hash::Hash;
 use core::marker::PhantomData;
-use salsita::Db;
+use salsita::Snapshot;
 use salsita::metrics::Metrics;
 use salsita::query::Input;
 use salsita::query::Query;
@@ -25,12 +25,12 @@ macro_rules! impl_dep {
             type Args = $input<$($dep::Args),*>;
             type Out = O::Out;
 
-            fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+            fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
             where
                 M: Metrics,
             {
                 let $input($($dep,)*) = args;
-                $(let $dep = db.query::<$dep>($dep);)*
+                $(let $dep = snapshot.query::<$dep>($dep);)*
                 O::op($input($($dep),*))
             }
         }
@@ -95,11 +95,11 @@ where
     type Args = D::Args;
     type Out = O::Out;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
-        let d = db.query::<D>(args);
+        let d = snapshot.query::<D>(args);
         O::op(d)
     }
 }

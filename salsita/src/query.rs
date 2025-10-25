@@ -1,4 +1,4 @@
-use crate::Db;
+use crate::Snapshot;
 use crate::memo::MemoId;
 use crate::metrics::Metrics;
 use core::cmp::Ordering;
@@ -13,7 +13,7 @@ pub trait Query: 'static {
     type Args: Clone + Eq + Hash + Send + Sync;
     type Out: Clone + Eq + Send + Sync;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics;
 }
@@ -34,7 +34,7 @@ where
 
     type Out = <Self as Input>::Value;
 
-    fn eval<M>(_: &Db<M>, _: &Self::Args) -> Self::Out
+    fn eval<M>(_: &Snapshot<M>, _: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
