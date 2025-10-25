@@ -19,7 +19,7 @@ pub mod query;
 mod tests;
 
 #[derive(Debug, Default)]
-pub struct Db<M> {
+pub struct Db<M = ()> {
     interner: RefCell<Interner>,
     memos: RefCell<Memos<M>>,
     rev: GlobalRevision,

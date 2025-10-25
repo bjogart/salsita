@@ -7,7 +7,7 @@ use core::hash::Hash;
 use std::collections::HashMap;
 use std::hash::RandomState;
 
-const UNKNOWN_ID: &str = "`InternId` not in `self.values`";
+const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
 pub(crate) struct Interner {
@@ -48,9 +48,9 @@ impl Interner {
         T: Clone + Eq + Hash + 'static,
     {
         let bucket = Self::find_bucket(&self.print_hasher, &mut self.index, value);
-        match Self::find_id_in_bucket::<T>(bucket, &self.values, value) {
+        match Self::find_bucket_entry::<T>(bucket, &self.values, value) {
             Some(id) => id,
-            None => Self::insert_value_in_bucket(bucket, &mut self.values, value),
+            None => Self::insert_value(bucket, &mut self.values, value),
         }
     }
 
@@ -66,7 +66,7 @@ impl Interner {
         index.entry(print).or_default()
     }
 
-    fn find_id_in_bucket<T>(bucket: &Bucket, values: &[Rc<dyn Any>], value: &T) -> Option<InternId>
+    fn find_bucket_entry<T>(bucket: &Bucket, values: &[Rc<dyn Any>], value: &T) -> Option<InternId>
     where
         T: Eq + 'static,
     {
@@ -80,11 +80,7 @@ impl Interner {
         })
     }
 
-    fn insert_value_in_bucket<T>(
-        bucket: &mut Bucket,
-        values: &mut Vec<Rc<dyn Any>>,
-        value: &T,
-    ) -> InternId
+    fn insert_value<T>(bucket: &mut Bucket, values: &mut Vec<Rc<dyn Any>>, value: &T) -> InternId
     where
         T: Clone + 'static,
     {

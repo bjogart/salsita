@@ -16,10 +16,7 @@ where
 
     fn query_scope(&self) -> QueryGuard<'_, Self, Self::Query> {
         let value = self.begin_query();
-        QueryGuard {
-            metrics: self,
-            value: Some(value),
-        }
+        QueryGuard::new(self, Some(value))
     }
 
     fn begin_query(&self) -> Self::Query;
@@ -28,10 +25,7 @@ where
 
     fn eval_scope(&self) -> EvalGuard<'_, Self, Self::Eval> {
         let value = self.begin_eval();
-        EvalGuard {
-            metrics: self,
-            value: Some(value),
-        }
+        EvalGuard::new(self, Some(value))
     }
 
     fn begin_eval(&self) -> Self::Eval;
@@ -143,15 +137,15 @@ impl AtomicDuration {
 mod seal {
     use crate::metrics::Metrics;
 
-    const VALUE_RESERVED_FOR_DROP: &str = "`Metrics` guard should be `Some` before `drop`";
+    const VALUE_ALREADY_TAKEN: &str = "bug: guard value already taken";
 
     #[derive(Debug)]
     pub struct QueryGuard<'metrics, M, G>
     where
         M: Metrics<Query = G>,
     {
-        pub(crate) metrics: &'metrics M,
-        pub(crate) value: Option<G>,
+        metrics: &'metrics M,
+        value: Option<G>,
     }
 
     #[derive(Debug)]
@@ -159,8 +153,17 @@ mod seal {
     where
         M: Metrics<Eval = G>,
     {
-        pub(crate) metrics: &'metrics M,
-        pub(crate) value: Option<G>,
+        metrics: &'metrics M,
+        value: Option<G>,
+    }
+
+    impl<'metrics, M, G> QueryGuard<'metrics, M, G>
+    where
+        M: Metrics<Query = G>,
+    {
+        pub const fn new(metrics: &'metrics M, value: Option<G>) -> Self {
+            Self { metrics, value }
+        }
     }
 
     impl<M, G> Drop for QueryGuard<'_, M, G>
@@ -169,7 +172,16 @@ mod seal {
     {
         fn drop(&mut self) {
             self.metrics
-                .exit_query(self.value.take().expect(VALUE_RESERVED_FOR_DROP));
+                .exit_query(self.value.take().expect(VALUE_ALREADY_TAKEN));
+        }
+    }
+
+    impl<'metrics, M, G> EvalGuard<'metrics, M, G>
+    where
+        M: Metrics<Eval = G>,
+    {
+        pub const fn new(metrics: &'metrics M, value: Option<G>) -> Self {
+            Self { metrics, value }
         }
     }
 
@@ -179,7 +191,7 @@ mod seal {
     {
         fn drop(&mut self) {
             self.metrics
-                .end_eval(self.value.take().expect(VALUE_RESERVED_FOR_DROP));
+                .end_eval(self.value.take().expect(VALUE_ALREADY_TAKEN));
         }
     }
 }
