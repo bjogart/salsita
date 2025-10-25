@@ -26,12 +26,12 @@ pub(crate) struct MemoId {
 
 #[derive(Debug)]
 pub(crate) struct MemoEntry<M> {
-    pub(crate) eval: fn(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>,
-    pub(crate) eq: fn(a: &dyn Any, b: &dyn Any) -> bool,
+    pub(crate) eval: fn(db: &Db<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
+    pub(crate) eq: fn(a: &(dyn Any + Send + Sync), b: &(dyn Any + Send + Sync)) -> bool,
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
-    pub(crate) value: Option<Box<dyn Any>>,
+    pub(crate) value: Option<Box<dyn Any + Send + Sync>>,
 }
 
 impl<M> Memos<M>
@@ -95,7 +95,7 @@ where
             value: None,
         };
 
-        fn eval<M, Q>(db: &Db<M>, args: &dyn Any) -> Box<dyn Any>
+        fn eval<M, Q>(db: &Db<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>
         where
             M: Metrics,
             Q: Query,
@@ -105,7 +105,7 @@ where
             Box::new(out)
         }
 
-        fn eq<T>(a: &dyn Any, b: &dyn Any) -> bool
+        fn eq<T>(a: &(dyn Any + Send + Sync), b: &(dyn Any + Send + Sync)) -> bool
         where
             T: Eq + 'static,
         {
@@ -124,7 +124,7 @@ where
     }
 }
 
-fn downcast_ref<T>(value: &dyn Any) -> &T
+fn downcast_ref<T>(value: &(dyn Any + Send + Sync)) -> &T
 where
     T: 'static,
 {
