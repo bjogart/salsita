@@ -1,6 +1,6 @@
 #![expect(non_snake_case)]
 
-use core::hash;
+use core::hash::Hash;
 use core::marker::PhantomData;
 use salsita::Db;
 use salsita::metrics::Metrics;
@@ -8,7 +8,7 @@ use salsita::query::Input;
 use salsita::query::Query;
 
 pub(crate) trait Op: 'static {
-    type Args: Clone + Eq + hash::Hash;
+    type Args: Clone + Eq + Hash;
     type Out: Clone + Eq;
     fn op(args: Self::Args) -> Self::Out;
 }
