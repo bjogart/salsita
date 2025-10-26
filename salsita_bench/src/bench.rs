@@ -912,11 +912,13 @@ pub(crate) fn star10<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport
     let metrics = bench_graph::<WARMUP_COUNT, N, Star10>(
         |db| {
             let inp = db.new_input::<Inp>(1);
-            Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp);
+            (inputs, 20)
         },
-        |db, Tuple10(inp, _, _, _, _, _, _, _, _, _)| db.set_input(*inp, 2),
-        20,
-        30,
+        |db, Tuple10(inp, _, _, _, _, _, _, _, _, _)| {
+            db.set_input(*inp, 2);
+            30
+        },
     );
     BenchReport::new("star10", metrics)
 }
@@ -925,10 +927,11 @@ pub(crate) fn star30<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport
     let metrics = bench_graph::<WARMUP_COUNT, N, Star30>(
         |db| {
             let inp = db.new_input::<Inp>(1);
-            Tuple30(
+            let inputs = Tuple30(
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
-            )
+            );
+            (inputs, 60)
         },
         |db,
          Tuple30(
@@ -962,9 +965,10 @@ pub(crate) fn star30<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport
             _,
             _,
             _,
-        )| db.set_input(*inp, 2),
-        60,
-        90,
+        )| {
+            db.set_input(*inp, 2);
+            90
+        },
     );
     BenchReport::new("star30", metrics)
 }
@@ -973,7 +977,7 @@ pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchRepor
     let metrics = bench_graph::<WARMUP_COUNT, N, Star100>(
         |db| {
             let inp = db.new_input::<Inp>(1);
-            Tuple100(
+            let inputs = Tuple100(
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
@@ -981,7 +985,8 @@ pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchRepor
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp,
-            )
+            );
+            (inputs, 200)
         },
         |db,
          Tuple100(
@@ -1085,39 +1090,52 @@ pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchRepor
             _,
             _,
             _,
-        )| db.set_input(*inp, 2),
-        200,
-        300,
+        )| {
+            db.set_input(*inp, 2);
+            300
+        },
     );
     BenchReport::new("star100", metrics)
 }
 
 pub(crate) fn chain5<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
     let metrics = bench_graph::<WARMUP_COUNT, N, Chain5>(
-        |db| db.new_input::<Inp>(0),
-        |db, inp| db.set_input(*inp, 1),
-        5,
-        6,
+        |db| {
+            let inputs = db.new_input::<Inp>(0);
+            (inputs, 5)
+        },
+        |db, inp| {
+            db.set_input(*inp, 1);
+            6
+        },
     );
     BenchReport::new("chain5", metrics)
 }
 
 pub(crate) fn chain25<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
     let metrics = bench_graph::<WARMUP_COUNT, N, Chain25>(
-        |db| db.new_input::<Inp>(0),
-        |db, inp| db.set_input(*inp, 1),
-        25,
-        26,
+        |db| {
+            let inputs = db.new_input::<Inp>(0);
+            (inputs, 25)
+        },
+        |db, inp| {
+            db.set_input(*inp, 1);
+            26
+        },
     );
     BenchReport::new("chain25", metrics)
 }
 
 pub(crate) fn chain100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
     let metrics = bench_graph::<WARMUP_COUNT, N, Chain100>(
-        |db| db.new_input::<Inp>(0),
-        |db, inp| db.set_input(*inp, 1),
-        100,
-        101,
+        |db| {
+            let inputs = db.new_input::<Inp>(0);
+            (inputs, 100)
+        },
+        |db, inp| {
+            db.set_input(*inp, 1);
+            101
+        },
     );
     BenchReport::new("chain100", metrics)
 }
@@ -1126,11 +1144,13 @@ pub(crate) fn tree_k3d2<const WARMUP_COUNT: usize, const N: usize>() -> BenchRep
     let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D2>(
         |db| {
             let inp = db.new_input::<Inp>(0);
-            Tuple3(inp, inp, inp)
+            let inputs = Tuple3(inp, inp, inp);
+            (inputs, 3)
         },
-        |db, Tuple3(inp, _, _)| db.set_input(*inp, 1),
-        3,
-        6,
+        |db, Tuple3(inp, _, _)| {
+            db.set_input(*inp, 1);
+            6
+        },
     );
     BenchReport::new("tree_k3d2", metrics)
 }
@@ -1139,11 +1159,13 @@ pub(crate) fn tree_k3d3<const WARMUP_COUNT: usize, const N: usize>() -> BenchRep
     let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D3>(
         |db| {
             let inp = db.new_input::<Inp>(0);
-            Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
+            (inputs, 18)
         },
-        |db, Tuple9(inp, _, _, _, _, _, _, _, _)| db.set_input(*inp, 1),
-        18,
-        27,
+        |db, Tuple9(inp, _, _, _, _, _, _, _, _)| {
+            db.set_input(*inp, 1);
+            27
+        },
     );
     BenchReport::new("tree_k3d3", metrics)
 }
@@ -1152,10 +1174,11 @@ pub(crate) fn tree_k3d4<const WARMUP_COUNT: usize, const N: usize>() -> BenchRep
     let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D4>(
         |db| {
             let inp = db.new_input::<Inp>(0);
-            Tuple27(
+            let inputs = Tuple27(
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
-            )
+            );
+            (inputs, 81)
         },
         |db,
          Tuple27(
@@ -1186,9 +1209,10 @@ pub(crate) fn tree_k3d4<const WARMUP_COUNT: usize, const N: usize>() -> BenchRep
             _,
             _,
             _,
-        )| { db.set_input(*inp, 1) },
-        81,
-        108,
+        )| {
+            db.set_input(*inp, 1);
+            108
+        },
     );
     BenchReport::new("tree_k3d4", metrics)
 }
@@ -1201,14 +1225,14 @@ pub(crate) fn hourglass3<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
                 db.new_input::<Inp2>(1),
                 db.new_input::<Inp3>(1),
             );
-            Tuple3(inp, inp, inp)
+            let inputs = Tuple3(inp, inp, inp);
+            (inputs, 24)
         },
         |db, Tuple3(Tuple3(inp1, inp2, _), _, _)| {
             db.set_input(*inp1, 1);
             db.set_input(*inp2, 2);
+            24
         },
-        24,
-        24,
     );
     BenchReport::new("hourglass3", metrics)
 }
@@ -1224,14 +1248,14 @@ pub(crate) fn hourglass6<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
                 db.new_input::<Inp5>(1),
                 db.new_input::<Inp6>(1),
             );
-            Tuple6(inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple6(inp, inp, inp, inp, inp, inp);
+            (inputs, 84)
         },
         |db, Tuple6(Tuple6(inp1, inp2, _, _, _, _), _, _, _, _, _)| {
             db.set_input(*inp1, 1);
             db.set_input(*inp2, 2);
+            84
         },
-        84,
-        84,
     );
     BenchReport::new("hourglass6", metrics)
 }
@@ -1250,14 +1274,14 @@ pub(crate) fn hourglass9<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
                 db.new_input::<Inp8>(1),
                 db.new_input::<Inp9>(1),
             );
-            Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
+            (inputs, 180)
         },
         |db, Tuple9(Tuple9(inp1, inp2, _, _, _, _, _, _, _), _, _, _, _, _, _, _, _)| {
             db.set_input(*inp1, 1);
             db.set_input(*inp2, 2);
+            180
         },
-        180,
-        180,
     );
     BenchReport::new("hourglass9", metrics)
 }
@@ -1272,82 +1296,75 @@ impl BenchReport {
 }
 
 fn bench_graph<const WARMUP_COUNT: usize, const N: usize, Sink>(
-    alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> Sink::Args,
-    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args),
-    exp_cold: Sink::Out,
-    exp_update: Sink::Out,
+    alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> (Sink::Args, Sink::Out),
+    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args) -> Sink::Out,
 ) -> GraphMetrics
 where
     Sink: Query,
     Sink::Out: Copy + Eq + Debug,
 {
     GraphMetrics {
-        cold: bench_scenario::<WARMUP_COUNT, N, _, _>(
+        cold: bench_scenario::<WARMUP_COUNT, N, _>(
             |_| {},
             |db, ()| {
-                let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs)
+                let (inputs, exp_out) = alloc_inputs(db);
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
             },
-            exp_cold,
         ),
-        memo: bench_scenario::<WARMUP_COUNT, N, _, _>(
+        memo: bench_scenario::<WARMUP_COUNT, N, _>(
             |db| {
-                let inputs = alloc_inputs(db);
+                let (inputs, exp_out) = alloc_inputs(db);
                 db.query::<Sink>(&inputs);
-                inputs
+                (inputs, exp_out)
             },
-            |db, inputs| db.query::<Sink>(&inputs),
-            exp_cold,
+            |db, (inputs, exp_out)| {
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
+            },
         ),
-        update: bench_scenario::<WARMUP_COUNT, N, _, _>(
+        update: bench_scenario::<WARMUP_COUNT, N, _>(
             |db| {
-                let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs);
+                let (inputs, exp_out) = alloc_inputs(db);
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
                 inputs
             },
             |db, inputs| {
-                update_inputs(db, &inputs);
-                db.query::<Sink>(&inputs)
+                let exp_out = update_inputs(db, &inputs);
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
             },
-            exp_update,
         ),
     }
 }
 
-fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp, Out>(
+fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     init: impl Copy + Fn(&mut Db<PerfMetrics>) -> Inp,
-    bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp) -> Out,
-    exp: Out,
-) -> ScenarioMetrics
-where
-    Out: Copy + Eq + Debug,
-{
-    let (_, counts, out) = bench_iter(init, bench);
-    assert_eq!(out, exp);
+    bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp),
+) -> ScenarioMetrics {
+    let (_, counts) = bench_iter(init, bench);
     for _ in 0..WARMUP_COUNT {
-        let (_, _, _) = bench_iter(init, bench);
+        let (_, _) = bench_iter(init, bench);
     }
     let timings = iter::repeat_with(|| {
-        let (timings, _, _) = bench_iter(init, bench);
+        let (timings, _) = bench_iter(init, bench);
         timings
     })
     .take(N)
     .collect();
     return ScenarioMetrics { counts, timings };
 
-    fn bench_iter<T, Out>(
+    fn bench_iter<T>(
         init: impl Fn(&mut Db<PerfMetrics>) -> T,
-        bench: impl Fn(&mut Db<PerfMetrics>, T) -> Out,
-    ) -> (Timings, Counts, Out)
-    where
-        Out: Eq + Debug,
-    {
+        bench: impl Fn(&mut Db<PerfMetrics>, T),
+    ) -> (Timings, Counts) {
         let mut db = Db::default();
         let v = init(&mut db);
         db.metrics().reset();
-        let out = bench(&mut db, v);
+        bench(&mut db, v);
         let m = db.metrics();
-        (Timings::new(m), Counts::new(m), out)
+        (Timings::new(m), Counts::new(m))
     }
 }
 
