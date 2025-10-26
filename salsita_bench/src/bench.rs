@@ -135,8 +135,6 @@ use salsita::Db;
 use salsita::metrics::PerfMetrics;
 use salsita::query::Query;
 
-const WARMUP_COUNT: usize = 3;
-
 #[derive(serde::Serialize)]
 pub(crate) struct Report(Vec<BenchReport>);
 
@@ -892,26 +890,26 @@ type Hourglass9 = Sink9<
 >;
 
 impl Report {
-    pub(crate) fn new<const N: usize>() -> Self {
+    pub(crate) fn new<const WARMUP_COUNT: usize, const N: usize>() -> Self {
         Self(vec![
-            star10::<N>(),
-            star30::<N>(),
-            star100::<N>(),
-            chain5::<N>(),
-            chain25::<N>(),
-            chain100::<N>(),
-            tree_k3d2::<N>(),
-            tree_k3d3::<N>(),
-            tree_k3d4::<N>(),
-            hourglass3::<N>(),
-            hourglass6::<N>(),
-            hourglass9::<N>(),
+            star10::<WARMUP_COUNT, N>(),
+            star30::<WARMUP_COUNT, N>(),
+            star100::<WARMUP_COUNT, N>(),
+            chain5::<WARMUP_COUNT, N>(),
+            chain25::<WARMUP_COUNT, N>(),
+            chain100::<WARMUP_COUNT, N>(),
+            tree_k3d2::<WARMUP_COUNT, N>(),
+            tree_k3d3::<WARMUP_COUNT, N>(),
+            tree_k3d4::<WARMUP_COUNT, N>(),
+            hourglass3::<WARMUP_COUNT, N>(),
+            hourglass6::<WARMUP_COUNT, N>(),
+            hourglass9::<WARMUP_COUNT, N>(),
         ])
     }
 }
 
-pub(crate) fn star10<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Star10>(
+pub(crate) fn star10<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Star10>(
         |db| {
             let inp = db.new_input::<Inp>(1);
             Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -923,8 +921,8 @@ pub(crate) fn star10<const N: usize>() -> BenchReport {
     BenchReport::new("star10", metrics)
 }
 
-pub(crate) fn star30<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Star30>(
+pub(crate) fn star30<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Star30>(
         |db| {
             let inp = db.new_input::<Inp>(1);
             Tuple30(
@@ -971,8 +969,8 @@ pub(crate) fn star30<const N: usize>() -> BenchReport {
     BenchReport::new("star30", metrics)
 }
 
-pub(crate) fn star100<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Star100>(
+pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Star100>(
         |db| {
             let inp = db.new_input::<Inp>(1);
             Tuple100(
@@ -1094,8 +1092,8 @@ pub(crate) fn star100<const N: usize>() -> BenchReport {
     BenchReport::new("star100", metrics)
 }
 
-pub(crate) fn chain5<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Chain5>(
+pub(crate) fn chain5<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Chain5>(
         |db| db.new_input::<Inp>(0),
         |db, inp| db.set_input(*inp, 1),
         5,
@@ -1104,8 +1102,8 @@ pub(crate) fn chain5<const N: usize>() -> BenchReport {
     BenchReport::new("chain5", metrics)
 }
 
-pub(crate) fn chain25<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Chain25>(
+pub(crate) fn chain25<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Chain25>(
         |db| db.new_input::<Inp>(0),
         |db, inp| db.set_input(*inp, 1),
         25,
@@ -1114,8 +1112,8 @@ pub(crate) fn chain25<const N: usize>() -> BenchReport {
     BenchReport::new("chain25", metrics)
 }
 
-pub(crate) fn chain100<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Chain100>(
+pub(crate) fn chain100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Chain100>(
         |db| db.new_input::<Inp>(0),
         |db, inp| db.set_input(*inp, 1),
         100,
@@ -1124,8 +1122,8 @@ pub(crate) fn chain100<const N: usize>() -> BenchReport {
     BenchReport::new("chain100", metrics)
 }
 
-pub(crate) fn tree_k3d2<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, TreeK3D2>(
+pub(crate) fn tree_k3d2<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D2>(
         |db| {
             let inp = db.new_input::<Inp>(0);
             Tuple3(inp, inp, inp)
@@ -1137,8 +1135,8 @@ pub(crate) fn tree_k3d2<const N: usize>() -> BenchReport {
     BenchReport::new("tree_k3d2", metrics)
 }
 
-pub(crate) fn tree_k3d3<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, TreeK3D3>(
+pub(crate) fn tree_k3d3<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D3>(
         |db| {
             let inp = db.new_input::<Inp>(0);
             Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
@@ -1150,8 +1148,8 @@ pub(crate) fn tree_k3d3<const N: usize>() -> BenchReport {
     BenchReport::new("tree_k3d3", metrics)
 }
 
-pub(crate) fn tree_k3d4<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, TreeK3D4>(
+pub(crate) fn tree_k3d4<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D4>(
         |db| {
             let inp = db.new_input::<Inp>(0);
             Tuple27(
@@ -1195,8 +1193,8 @@ pub(crate) fn tree_k3d4<const N: usize>() -> BenchReport {
     BenchReport::new("tree_k3d4", metrics)
 }
 
-pub(crate) fn hourglass3<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Hourglass3>(
+pub(crate) fn hourglass3<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass3>(
         |db| {
             let inp = Tuple3(
                 db.new_input::<Inp>(2),
@@ -1215,8 +1213,8 @@ pub(crate) fn hourglass3<const N: usize>() -> BenchReport {
     BenchReport::new("hourglass3", metrics)
 }
 
-pub(crate) fn hourglass6<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Hourglass6>(
+pub(crate) fn hourglass6<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass6>(
         |db| {
             let inp = Tuple6(
                 db.new_input::<Inp>(2),
@@ -1238,8 +1236,8 @@ pub(crate) fn hourglass6<const N: usize>() -> BenchReport {
     BenchReport::new("hourglass6", metrics)
 }
 
-pub(crate) fn hourglass9<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Hourglass9>(
+pub(crate) fn hourglass9<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass9>(
         |db| {
             let inp = Tuple9(
                 db.new_input::<Inp>(2),
@@ -1273,7 +1271,7 @@ impl BenchReport {
     }
 }
 
-fn bench_graph<const N: usize, Sink>(
+fn bench_graph<const WARMUP_COUNT: usize, const N: usize, Sink>(
     alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> Sink::Args,
     update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args),
     exp_cold: Sink::Out,
@@ -1284,7 +1282,7 @@ where
     Sink::Out: Copy + Eq + Debug,
 {
     GraphMetrics {
-        cold: bench_scenario::<N, _, _>(
+        cold: bench_scenario::<WARMUP_COUNT, N, _, _>(
             |_| {},
             |db, ()| {
                 let inputs = alloc_inputs(db);
@@ -1292,7 +1290,7 @@ where
             },
             exp_cold,
         ),
-        memo: bench_scenario::<N, _, _>(
+        memo: bench_scenario::<WARMUP_COUNT, N, _, _>(
             |db| {
                 let inputs = alloc_inputs(db);
                 db.query::<Sink>(&inputs);
@@ -1301,7 +1299,7 @@ where
             |db, inputs| db.query::<Sink>(&inputs),
             exp_cold,
         ),
-        update: bench_scenario::<N, _, _>(
+        update: bench_scenario::<WARMUP_COUNT, N, _, _>(
             |db| {
                 let inputs = alloc_inputs(db);
                 db.query::<Sink>(&inputs);
@@ -1316,7 +1314,7 @@ where
     }
 }
 
-fn bench_scenario<const N: usize, Inp, Out>(
+fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp, Out>(
     init: impl Copy + Fn(&mut Db<PerfMetrics>) -> Inp,
     bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp) -> Out,
     exp: Out,
@@ -1378,61 +1376,61 @@ mod tests {
 
     #[test]
     fn star10() {
-        black_box(bench::star10::<1>());
+        black_box(bench::star10::<0, 1>());
     }
 
     #[test]
     fn star30() {
-        black_box(bench::star30::<1>());
+        black_box(bench::star30::<0, 1>());
     }
 
     #[test]
     fn star100() {
-        black_box(bench::star100::<1>());
+        black_box(bench::star100::<0, 1>());
     }
 
     #[test]
     fn chain5() {
-        black_box(bench::chain5::<1>());
+        black_box(bench::chain5::<0, 1>());
     }
 
     #[test]
     fn chain25() {
-        black_box(bench::chain25::<1>());
+        black_box(bench::chain25::<0, 1>());
     }
 
     #[test]
     fn chain100() {
-        black_box(bench::chain100::<1>());
+        black_box(bench::chain100::<0, 1>());
     }
 
     #[test]
     fn tree_k3d2() {
-        black_box(bench::tree_k3d2::<1>());
+        black_box(bench::tree_k3d2::<0, 1>());
     }
 
     #[test]
     fn tree_k3d3() {
-        black_box(bench::tree_k3d3::<1>());
+        black_box(bench::tree_k3d3::<0, 1>());
     }
 
     #[test]
     fn tree_k3d4() {
-        black_box(bench::tree_k3d4::<1>());
+        black_box(bench::tree_k3d4::<0, 1>());
     }
 
     #[test]
     fn hourglass3() {
-        black_box(bench::hourglass3::<1>());
+        black_box(bench::hourglass3::<0, 1>());
     }
 
     #[test]
     fn hourglass6() {
-        black_box(bench::hourglass6::<1>());
+        black_box(bench::hourglass6::<0, 1>());
     }
 
     #[test]
     fn hourglass9() {
-        black_box(bench::hourglass9::<1>());
+        black_box(bench::hourglass9::<0, 1>());
     }
 }
