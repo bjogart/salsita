@@ -20,10 +20,15 @@ mod tests;
 
 #[derive(Debug, Default)]
 pub struct Db<M = ()> {
+    global: GlobalState<M>,
+    active_queries: ActiveQueryStack,
+}
+
+#[derive(Debug, Default)]
+struct GlobalState<M> {
+    rev: GlobalRevision,
     interner: RefCell<Interner>,
     memos: RefCell<Memos<M>>,
-    rev: GlobalRevision,
-    active_queries: ActiveQueryStack,
     metrics: M,
 }
 
@@ -46,18 +51,23 @@ impl<M> Db<M>
 where
     M: Metrics,
 {
+    #[must_use]
     pub const fn metrics(&self) -> &M {
-        &self.metrics
+        &self.global.metrics
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
     where
         I: Input,
     {
-        let rev = self.rev.get();
-        let mut interner = self.interner.borrow_mut();
+        let rev = self.global.rev.get();
+        let mut interner = self.global.interner.borrow_mut();
         interner.intern_input_id(|args_id| {
-            let memo_id = self.memos.borrow_mut().new_input::<I>(rev, args_id, value);
+            let memo_id = self
+                .global
+                .memos
+                .borrow_mut()
+                .new_input::<I>(rev, args_id, value);
             InputId::from(memo_id)
         })
     }
@@ -66,8 +76,8 @@ where
     where
         I: Input,
     {
-        let rev = self.rev.bump();
-        let mut memos = self.memos.borrow_mut();
+        let rev = self.global.rev.bump();
+        let mut memos = self.global.memos.borrow_mut();
         let memo = memos.memo_mut(id.memo_id());
         memo.value = Some(Box::new(value));
         memo.last_verified = rev;
@@ -78,19 +88,24 @@ where
     where
         Q: Query,
     {
-        let _query_guard = self.metrics.query_scope();
-        let args_id = self.interner.borrow_mut().intern(args);
-        let memo_id = self.memos.borrow_mut().intern::<Q>(args_id);
-        self.verify_memo(self.rev.get(), memo_id);
+        let _query_guard = self.global.metrics.query_scope();
+        let args_id = self.global.interner.borrow_mut().intern(args);
+        let memo_id = self.global.memos.borrow_mut().intern::<Q>(args_id);
+        self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
         if let Some(caller) = self.active_queries.active_query() {
-            self.memos.borrow_mut().memo_mut(caller).deps.push(memo_id);
+            self.global
+                .memos
+                .borrow_mut()
+                .memo_mut(caller)
+                .deps
+                .push(memo_id);
         }
         let (last_verified, deps, has_value) = {
-            let memos = self.memos.borrow();
+            let memos = self.global.memos.borrow();
             let memo = memos.memo(memo_id);
             let last_verified = memo.last_verified;
             if last_verified == current_rev {
@@ -104,7 +119,11 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && has_value {
-            self.memos.borrow_mut().memo_mut(memo_id).last_verified = current_rev;
+            self.global
+                .memos
+                .borrow_mut()
+                .memo_mut(memo_id)
+                .last_verified = current_rev;
             return;
         }
         self.eval_memo(current_rev, memo_id);
@@ -112,20 +131,20 @@ where
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
         let eval = {
-            let mut memos = self.memos.borrow_mut();
+            let mut memos = self.global.memos.borrow_mut();
             let memo = memos.memo_mut(memo_id);
             memo.deps.clear();
             memo.eval
         };
-        let args = self.interner.borrow().interned(memo_id.args());
+        let args = self.global.interner.borrow().interned(memo_id.args());
         let _stack_len = self.active_queries.len();
         let out = {
             let _active_query_guard = self.active_queries.push_query(memo_id);
-            let _eval_guard = self.metrics.eval_scope();
+            let _eval_guard = self.global.metrics.eval_scope();
             eval(self, args.as_ref())
         };
         debug_assert_eq!(self.active_queries.len(), _stack_len);
-        let mut memos = self.memos.borrow_mut();
+        let mut memos = self.global.memos.borrow_mut();
         let memo = memos.memo_mut(memo_id);
         memo.last_verified = current_rev;
         if let Some(prev) = memo.value.as_ref()
@@ -144,14 +163,19 @@ where
         dep: MemoId,
     ) -> bool {
         self.verify_memo(current_rev, dep);
-        self.memos.borrow().memo(dep).last_changed > memo_last_verified
+        self.global.memos.borrow().memo(dep).last_changed > memo_last_verified
     }
 
     fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
     where
         Q: Query,
     {
-        self.memos.borrow().memo(memo_id).value::<Q::Out>().clone()
+        self.global
+            .memos
+            .borrow()
+            .memo(memo_id)
+            .value::<Q::Out>()
+            .clone()
     }
 }
 
