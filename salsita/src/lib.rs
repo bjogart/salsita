@@ -67,14 +67,27 @@ struct ActiveQuery {
     deps: Vec<MemoId>,
 }
 
-struct CommitActiveQuery<'snap, M>
+struct CommitQuery<'snap, M>
 where
     M: Metrics,
 {
     snapshot: &'snap Snapshot<M>,
+    memo: CommitMemo<'snap, M>,
+}
+
+struct CommitMemo<'db, M>
+where
+    M: Metrics,
+{
+    db: &'db Db<M>,
     current_rev: Revision,
     memo_id: MemoId,
-    value: Option<Box<dyn Any + Send + Sync>>,
+    change: Option<MemoChange>,
+}
+
+struct MemoChange {
+    deps: Vec<MemoId>,
+    value: Box<dyn Any + Send + Sync>,
 }
 
 impl<M> Db<M>
@@ -218,7 +231,7 @@ where
         {
             return;
         }
-        commit.value = Some(out);
+        commit.memo.change = Some(MemoChange::new(out));
     }
 
     fn dep_postdates_rev(
@@ -237,15 +250,18 @@ where
             > memo_last_verified
     }
 
-    fn new_active_query(&self, current_rev: Revision, memo_id: MemoId) -> CommitActiveQuery<'_, M> {
+    fn new_active_query(&self, current_rev: Revision, memo_id: MemoId) -> CommitQuery<'_, M> {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
-        CommitActiveQuery {
+        CommitQuery {
             snapshot: self,
-            current_rev,
-            memo_id,
-            value: None,
+            memo: CommitMemo {
+                db: &self.db,
+                current_rev,
+                memo_id,
+                change: None,
+            },
         }
     }
 
@@ -272,28 +288,49 @@ where
     }
 }
 
-impl<M> Drop for CommitActiveQuery<'_, M>
+impl<M> Drop for CommitQuery<'_, M>
+where
+    M: Metrics,
+{
+    fn drop(&mut self) {
+        let Self { snapshot, memo } = self;
+        let mut active_queries = snapshot.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        if let Some(memo_change) = memo.change.as_mut()
+            && let Some(ActiveQuery { deps }) = active_queries.pop()
+        {
+            memo_change.deps = deps;
+        }
+    }
+}
+
+impl MemoChange {
+    fn new(out: Box<dyn Any + Send + Sync>) -> Self {
+        Self {
+            deps: Vec::default(),
+            value: out,
+        }
+    }
+}
+
+impl<M> Drop for CommitMemo<'_, M>
 where
     M: Metrics,
 {
     fn drop(&mut self) {
         let Self {
-            snapshot,
+            db,
             current_rev,
             memo_id,
-            value,
+            change,
         } = self;
-        let mut memos = snapshot.db.global.memos.write().expect(INCONSISTENT_STATE);
+        let mut memos = db.global.memos.write().expect(INCONSISTENT_STATE);
         let memo = memos.memo_mut(*memo_id);
         memo.last_verified = *current_rev;
-        if let Some(value) = value.take() {
+        if let Some(MemoChange { deps, value }) = change.take() {
+            memo.deps = deps;
             memo.last_changed = *current_rev;
             memo.value = Some(value);
-        }
-        let mut active_queries = snapshot.active_queries.borrow_mut();
-        let ActiveQueryStack(active_queries) = &mut *active_queries;
-        if let Some(ActiveQuery { deps }) = active_queries.pop() {
-            memo.deps = deps;
         }
     }
 }
