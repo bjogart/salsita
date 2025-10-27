@@ -10,8 +10,8 @@ use core::hash::Hasher;
 use core::marker::PhantomData;
 
 pub trait Query: 'static {
-    type Out: Clone + Eq;
     type Args: Clone + Eq + Hash + Send + Sync;
+    type Out: Clone + Eq + Send + Sync;
 
     fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
     where
