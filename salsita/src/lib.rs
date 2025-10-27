@@ -39,7 +39,7 @@ pub struct Db<M = ()> {
 #[derive(Debug)]
 pub struct Snapshot<M> {
     db: Db<M>,
-    active_queries: ActiveQueryStack,
+    active_queries: RefCell<ActiveQueryStack>,
 }
 
 #[derive(Debug, Default)]
@@ -60,9 +60,7 @@ struct GlobalRevision(AtomicUsize);
 struct Revision(usize);
 
 #[derive(Debug, Default)]
-struct ActiveQueryStack {
-    queries: RefCell<Vec<ActiveQuery>>,
-}
+struct ActiveQueryStack(Vec<ActiveQuery>);
 
 #[derive(Debug, Default)]
 struct ActiveQuery {
@@ -136,7 +134,7 @@ where
                 global: Arc::clone(&self.global),
                 sync: SnapshotSync(Arc::clone(&self.sync.0)),
             },
-            active_queries: ActiveQueryStack::default(),
+            active_queries: RefCell::default(),
         }
     }
 }
@@ -240,10 +238,9 @@ where
     }
 
     fn new_active_query(&self, current_rev: Revision, memo_id: MemoId) -> CommitActiveQuery<'_, M> {
-        self.active_queries
-            .queries
-            .borrow_mut()
-            .push(ActiveQuery::default());
+        let mut active_queries = self.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        active_queries.push(ActiveQuery::default());
         CommitActiveQuery {
             snapshot: self,
             current_rev,
@@ -253,8 +250,9 @@ where
     }
 
     fn track_dep(&self, dep: MemoId) {
-        let mut borrow_mut = self.active_queries.queries.borrow_mut();
-        let caller = borrow_mut.last_mut();
+        let mut active_queries = self.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        let caller = active_queries.last_mut();
         if let Some(ActiveQuery { deps }) = caller {
             deps.push(dep);
         }
@@ -285,7 +283,6 @@ where
             memo_id,
             value,
         } = self;
-
         let mut memos = snapshot.db.global.memos.write().expect(INCONSISTENT_STATE);
         let memo = memos.memo_mut(*memo_id);
         memo.last_verified = *current_rev;
@@ -293,7 +290,9 @@ where
             memo.last_changed = *current_rev;
             memo.value = Some(value);
         }
-        if let Some(ActiveQuery { deps }) = snapshot.active_queries.queries.borrow_mut().pop() {
+        let mut active_queries = snapshot.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        if let Some(ActiveQuery { deps }) = active_queries.pop() {
             memo.deps = deps;
         }
     }
