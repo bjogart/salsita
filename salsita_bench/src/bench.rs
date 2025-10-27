@@ -135,8 +135,6 @@ use salsita::Db;
 use salsita::metrics::PerfMetrics;
 use salsita::query::Query;
 
-const WARMUP_COUNT: usize = 3;
-
 #[derive(serde::Serialize)]
 pub(crate) struct Report(Vec<BenchReport>);
 
@@ -208,26 +206,343 @@ struct Timings {
     eval: u64,
 }
 
-#[rustfmt::skip]
 type Sink3<D1, D2, D3> = Dep3<Add3, D1, D2, D3>;
 
-#[rustfmt::skip]
 type Sink6<D1, D2, D3, D4, D5, D6> = Dep6<Add6, D1, D2, D3, D4, D5, D6>;
 
-#[rustfmt::skip]
 type Sink9<D1, D2, D3, D4, D5, D6, D7, D8, D9> = Dep9<Add9, D1, D2, D3, D4, D5, D6, D7, D8, D9>;
 
-#[rustfmt::skip]
-type Sink10<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10> = Dep10<Add10, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10>;
+type Sink10<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10> =
+    Dep10<Add10, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10>;
 
-#[rustfmt::skip]
-type Sink27<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27> = Dep27<Add27, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27>;
+type Sink27<
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+> = Dep27<
+    Add27,
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+>;
 
-#[rustfmt::skip]
-type Sink30<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30> = Dep30<Add30, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30>;
+type Sink30<
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+    D28,
+    D29,
+    D30,
+> = Dep30<
+    Add30,
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+    D28,
+    D29,
+    D30,
+>;
 
-#[rustfmt::skip]
-type Sink100<D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D40, D41, D42, D43, D44, D45, D46, D47, D48, D49, D50, D51, D52, D53, D54, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100> = Dep100<Add100, D1, D2, D3, D4, D5, D6, D7, D8, D9, D10, D11, D12, D13, D14, D15, D16, D17, D18, D19, D20, D21, D22, D23, D24, D25, D26, D27, D28, D29, D30, D31, D32, D33, D34, D35, D36, D37, D38, D39, D40, D41, D42, D43, D44, D45, D46, D47, D48, D49, D50, D51, D52, D53, D54, D55, D56, D57, D58, D59, D60, D61, D62, D63, D64, D65, D66, D67, D68, D69, D70, D71, D72, D73, D74, D75, D76, D77, D78, D79, D80, D81, D82, D83, D84, D85, D86, D87, D88, D89, D90, D91, D92, D93, D94, D95, D96, D97, D98, D99, D100>;
+type Sink100<
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+    D28,
+    D29,
+    D30,
+    D31,
+    D32,
+    D33,
+    D34,
+    D35,
+    D36,
+    D37,
+    D38,
+    D39,
+    D40,
+    D41,
+    D42,
+    D43,
+    D44,
+    D45,
+    D46,
+    D47,
+    D48,
+    D49,
+    D50,
+    D51,
+    D52,
+    D53,
+    D54,
+    D55,
+    D56,
+    D57,
+    D58,
+    D59,
+    D60,
+    D61,
+    D62,
+    D63,
+    D64,
+    D65,
+    D66,
+    D67,
+    D68,
+    D69,
+    D70,
+    D71,
+    D72,
+    D73,
+    D74,
+    D75,
+    D76,
+    D77,
+    D78,
+    D79,
+    D80,
+    D81,
+    D82,
+    D83,
+    D84,
+    D85,
+    D86,
+    D87,
+    D88,
+    D89,
+    D90,
+    D91,
+    D92,
+    D93,
+    D94,
+    D95,
+    D96,
+    D97,
+    D98,
+    D99,
+    D100,
+> = Dep100<
+    Add100,
+    D1,
+    D2,
+    D3,
+    D4,
+    D5,
+    D6,
+    D7,
+    D8,
+    D9,
+    D10,
+    D11,
+    D12,
+    D13,
+    D14,
+    D15,
+    D16,
+    D17,
+    D18,
+    D19,
+    D20,
+    D21,
+    D22,
+    D23,
+    D24,
+    D25,
+    D26,
+    D27,
+    D28,
+    D29,
+    D30,
+    D31,
+    D32,
+    D33,
+    D34,
+    D35,
+    D36,
+    D37,
+    D38,
+    D39,
+    D40,
+    D41,
+    D42,
+    D43,
+    D44,
+    D45,
+    D46,
+    D47,
+    D48,
+    D49,
+    D50,
+    D51,
+    D52,
+    D53,
+    D54,
+    D55,
+    D56,
+    D57,
+    D58,
+    D59,
+    D60,
+    D61,
+    D62,
+    D63,
+    D64,
+    D65,
+    D66,
+    D67,
+    D68,
+    D69,
+    D70,
+    D71,
+    D72,
+    D73,
+    D74,
+    D75,
+    D76,
+    D77,
+    D78,
+    D79,
+    D80,
+    D81,
+    D82,
+    D83,
+    D84,
+    D85,
+    D86,
+    D87,
+    D88,
+    D89,
+    D90,
+    D91,
+    D92,
+    D93,
+    D94,
+    D95,
+    D96,
+    D97,
+    D98,
+    D99,
+    D100,
+>;
 type Branch<O> = Dep1<O, Inp>;
 
 /// Star-shaped graph variants (single input -> many dependents). `starN`
@@ -235,14 +550,154 @@ type Branch<O> = Dep1<O, Inp>;
 ///
 /// This is useful to stress fanout and reveal invalidation cost when a
 /// single input change causes re-evaluation of many dependents.
-#[rustfmt::skip]
-type Star10 = Sink10<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>>;
+type Star10 = Sink10<
+    Branch<Inc1>,
+    Branch<Inc1V2>,
+    Branch<Inc1V3>,
+    Branch<Inc1V4>,
+    Branch<Inc1V5>,
+    Branch<Inc1V6>,
+    Branch<Inc1V7>,
+    Branch<Inc1V8>,
+    Branch<Inc1V9>,
+    Branch<Inc1V10>,
+>;
 
-#[rustfmt::skip]
-type Star30 = Sink30<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>, Branch<Inc1V11>, Branch<Inc1V12>, Branch<Inc1V13>, Branch<Inc1V14>, Branch<Inc1V15>, Branch<Inc1V16>, Branch<Inc1V17>, Branch<Inc1V18>, Branch<Inc1V19>, Branch<Inc1V20>, Branch<Inc1V21>, Branch<Inc1V22>, Branch<Inc1V23>, Branch<Inc1V24>, Branch<Inc1V25>, Branch<Inc1V26>, Branch<Inc1V27>, Branch<Inc1V28>, Branch<Inc1V29>, Branch<Inc1V30>>;
+type Star30 = Sink30<
+    Branch<Inc1>,
+    Branch<Inc1V2>,
+    Branch<Inc1V3>,
+    Branch<Inc1V4>,
+    Branch<Inc1V5>,
+    Branch<Inc1V6>,
+    Branch<Inc1V7>,
+    Branch<Inc1V8>,
+    Branch<Inc1V9>,
+    Branch<Inc1V10>,
+    Branch<Inc1V11>,
+    Branch<Inc1V12>,
+    Branch<Inc1V13>,
+    Branch<Inc1V14>,
+    Branch<Inc1V15>,
+    Branch<Inc1V16>,
+    Branch<Inc1V17>,
+    Branch<Inc1V18>,
+    Branch<Inc1V19>,
+    Branch<Inc1V20>,
+    Branch<Inc1V21>,
+    Branch<Inc1V22>,
+    Branch<Inc1V23>,
+    Branch<Inc1V24>,
+    Branch<Inc1V25>,
+    Branch<Inc1V26>,
+    Branch<Inc1V27>,
+    Branch<Inc1V28>,
+    Branch<Inc1V29>,
+    Branch<Inc1V30>,
+>;
 
-#[rustfmt::skip]
-type Star100 = Sink100<Branch<Inc1>, Branch<Inc1V2>, Branch<Inc1V3>, Branch<Inc1V4>, Branch<Inc1V5>, Branch<Inc1V6>, Branch<Inc1V7>, Branch<Inc1V8>, Branch<Inc1V9>, Branch<Inc1V10>, Branch<Inc1V11>, Branch<Inc1V12>, Branch<Inc1V13>, Branch<Inc1V14>, Branch<Inc1V15>, Branch<Inc1V16>, Branch<Inc1V17>, Branch<Inc1V18>, Branch<Inc1V19>, Branch<Inc1V20>, Branch<Inc1V21>, Branch<Inc1V22>, Branch<Inc1V23>, Branch<Inc1V24>, Branch<Inc1V25>, Branch<Inc1V26>, Branch<Inc1V27>, Branch<Inc1V28>, Branch<Inc1V29>, Branch<Inc1V30>, Branch<Inc1V31>, Branch<Inc1V32>, Branch<Inc1V33>, Branch<Inc1V34>, Branch<Inc1V35>, Branch<Inc1V36>, Branch<Inc1V37>, Branch<Inc1V38>, Branch<Inc1V39>, Branch<Inc1V40>, Branch<Inc1V41>, Branch<Inc1V42>, Branch<Inc1V43>, Branch<Inc1V44>, Branch<Inc1V45>, Branch<Inc1V46>, Branch<Inc1V47>, Branch<Inc1V48>, Branch<Inc1V49>, Branch<Inc1V50>, Branch<Inc1V51>, Branch<Inc1V52>, Branch<Inc1V53>, Branch<Inc1V54>, Branch<Inc1V55>, Branch<Inc1V56>, Branch<Inc1V57>, Branch<Inc1V58>, Branch<Inc1V59>, Branch<Inc1V60>, Branch<Inc1V61>, Branch<Inc1V62>, Branch<Inc1V63>, Branch<Inc1V64>, Branch<Inc1V65>, Branch<Inc1V66>, Branch<Inc1V67>, Branch<Inc1V68>, Branch<Inc1V69>, Branch<Inc1V70>, Branch<Inc1V71>, Branch<Inc1V72>, Branch<Inc1V73>, Branch<Inc1V74>, Branch<Inc1V75>, Branch<Inc1V76>, Branch<Inc1V77>, Branch<Inc1V78>, Branch<Inc1V79>, Branch<Inc1V80>, Branch<Inc1V81>, Branch<Inc1V82>, Branch<Inc1V83>, Branch<Inc1V84>, Branch<Inc1V85>, Branch<Inc1V86>, Branch<Inc1V87>, Branch<Inc1V88>, Branch<Inc1V89>, Branch<Inc1V90>, Branch<Inc1V91>, Branch<Inc1V92>, Branch<Inc1V93>, Branch<Inc1V94>, Branch<Inc1V95>, Branch<Inc1V96>, Branch<Inc1V97>, Branch<Inc1V98>, Branch<Inc1V99>, Branch<Inc1V100>>;
+type Star100 = Sink100<
+    Branch<Inc1>,
+    Branch<Inc1V2>,
+    Branch<Inc1V3>,
+    Branch<Inc1V4>,
+    Branch<Inc1V5>,
+    Branch<Inc1V6>,
+    Branch<Inc1V7>,
+    Branch<Inc1V8>,
+    Branch<Inc1V9>,
+    Branch<Inc1V10>,
+    Branch<Inc1V11>,
+    Branch<Inc1V12>,
+    Branch<Inc1V13>,
+    Branch<Inc1V14>,
+    Branch<Inc1V15>,
+    Branch<Inc1V16>,
+    Branch<Inc1V17>,
+    Branch<Inc1V18>,
+    Branch<Inc1V19>,
+    Branch<Inc1V20>,
+    Branch<Inc1V21>,
+    Branch<Inc1V22>,
+    Branch<Inc1V23>,
+    Branch<Inc1V24>,
+    Branch<Inc1V25>,
+    Branch<Inc1V26>,
+    Branch<Inc1V27>,
+    Branch<Inc1V28>,
+    Branch<Inc1V29>,
+    Branch<Inc1V30>,
+    Branch<Inc1V31>,
+    Branch<Inc1V32>,
+    Branch<Inc1V33>,
+    Branch<Inc1V34>,
+    Branch<Inc1V35>,
+    Branch<Inc1V36>,
+    Branch<Inc1V37>,
+    Branch<Inc1V38>,
+    Branch<Inc1V39>,
+    Branch<Inc1V40>,
+    Branch<Inc1V41>,
+    Branch<Inc1V42>,
+    Branch<Inc1V43>,
+    Branch<Inc1V44>,
+    Branch<Inc1V45>,
+    Branch<Inc1V46>,
+    Branch<Inc1V47>,
+    Branch<Inc1V48>,
+    Branch<Inc1V49>,
+    Branch<Inc1V50>,
+    Branch<Inc1V51>,
+    Branch<Inc1V52>,
+    Branch<Inc1V53>,
+    Branch<Inc1V54>,
+    Branch<Inc1V55>,
+    Branch<Inc1V56>,
+    Branch<Inc1V57>,
+    Branch<Inc1V58>,
+    Branch<Inc1V59>,
+    Branch<Inc1V60>,
+    Branch<Inc1V61>,
+    Branch<Inc1V62>,
+    Branch<Inc1V63>,
+    Branch<Inc1V64>,
+    Branch<Inc1V65>,
+    Branch<Inc1V66>,
+    Branch<Inc1V67>,
+    Branch<Inc1V68>,
+    Branch<Inc1V69>,
+    Branch<Inc1V70>,
+    Branch<Inc1V71>,
+    Branch<Inc1V72>,
+    Branch<Inc1V73>,
+    Branch<Inc1V74>,
+    Branch<Inc1V75>,
+    Branch<Inc1V76>,
+    Branch<Inc1V77>,
+    Branch<Inc1V78>,
+    Branch<Inc1V79>,
+    Branch<Inc1V80>,
+    Branch<Inc1V81>,
+    Branch<Inc1V82>,
+    Branch<Inc1V83>,
+    Branch<Inc1V84>,
+    Branch<Inc1V85>,
+    Branch<Inc1V86>,
+    Branch<Inc1V87>,
+    Branch<Inc1V88>,
+    Branch<Inc1V89>,
+    Branch<Inc1V90>,
+    Branch<Inc1V91>,
+    Branch<Inc1V92>,
+    Branch<Inc1V93>,
+    Branch<Inc1V94>,
+    Branch<Inc1V95>,
+    Branch<Inc1V96>,
+    Branch<Inc1V97>,
+    Branch<Inc1V98>,
+    Branch<Inc1V99>,
+    Branch<Inc1V100>,
+>;
 
 type Link<D> = Dep1<Inc1, D>;
 
@@ -352,226 +807,481 @@ type TreeD3I27 = Tree<Inc1V39, TreeD2I9>;
 /// invalidate whole subtrees.
 type TreeK3D2 = Sink3<TreeD1I1, TreeD1I2, TreeD1I3>;
 
-#[rustfmt::skip]
-type TreeK3D3 = Sink9<TreeD2I1, TreeD2I2, TreeD2I3, TreeD2I4, TreeD2I5, TreeD2I6, TreeD2I7, TreeD2I8, TreeD2I9>;
+type TreeK3D3 =
+    Sink9<TreeD2I1, TreeD2I2, TreeD2I3, TreeD2I4, TreeD2I5, TreeD2I6, TreeD2I7, TreeD2I8, TreeD2I9>;
 
-#[rustfmt::skip]
-type TreeK3D4 = Sink27<TreeD3I1, TreeD3I2, TreeD3I3, TreeD3I4, TreeD3I5, TreeD3I6, TreeD3I7, TreeD3I8, TreeD3I9, TreeD3I10, TreeD3I11, TreeD3I12, TreeD3I13, TreeD3I14, TreeD3I15, TreeD3I16, TreeD3I17, TreeD3I18, TreeD3I19, TreeD3I20, TreeD3I21, TreeD3I22, TreeD3I23, TreeD3I24, TreeD3I25, TreeD3I26, TreeD3I27>;
+type TreeK3D4 = Sink27<
+    TreeD3I1,
+    TreeD3I2,
+    TreeD3I3,
+    TreeD3I4,
+    TreeD3I5,
+    TreeD3I6,
+    TreeD3I7,
+    TreeD3I8,
+    TreeD3I9,
+    TreeD3I10,
+    TreeD3I11,
+    TreeD3I12,
+    TreeD3I13,
+    TreeD3I14,
+    TreeD3I15,
+    TreeD3I16,
+    TreeD3I17,
+    TreeD3I18,
+    TreeD3I19,
+    TreeD3I20,
+    TreeD3I21,
+    TreeD3I22,
+    TreeD3I23,
+    TreeD3I24,
+    TreeD3I25,
+    TreeD3I26,
+    TreeD3I27,
+>;
 
 type FanIn<I> = Dep1<Inc1, I>;
 
 type FanOut<O, H> = Dep1<O, H>;
 
-#[rustfmt::skip]
 type Hub3 = Dep3<Add3, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>>;
 
-#[rustfmt::skip]
 type Hub6 = Dep6<Add6, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>>;
 
-#[rustfmt::skip]
-type Hub9 = Dep9<Add9, FanIn<Inp>, FanIn<Inp2>, FanIn<Inp3>, FanIn<Inp4>, FanIn<Inp5>, FanIn<Inp6>, FanIn<Inp7>, FanIn<Inp8>, FanIn<Inp9>>;
+type Hub9 = Dep9<
+    Add9,
+    FanIn<Inp>,
+    FanIn<Inp2>,
+    FanIn<Inp3>,
+    FanIn<Inp4>,
+    FanIn<Inp5>,
+    FanIn<Inp6>,
+    FanIn<Inp7>,
+    FanIn<Inp8>,
+    FanIn<Inp9>,
+>;
 
 /// Hourglass-shaped graph. `hourglassN` means N inputs converge into a
 /// single intermediate region and then diverge again into N outputs.
 ///
 /// This kind of graph stresses shared subexpressions and reuse. A correct
 /// incremental engine should compute the shared region once and reuse it.
-#[rustfmt::skip]
 type Hourglass3 = Sink3<FanOut<Inc1, Hub3>, FanOut<Inc1V2, Hub3>, FanOut<Inc1V3, Hub3>>;
 
-#[rustfmt::skip]
-type Hourglass6 = Sink6<FanOut<Inc1, Hub6>, FanOut<Inc1V2, Hub6>, FanOut<Inc1V3, Hub6>, FanOut<Inc1V4, Hub6>, FanOut<Inc1V5, Hub6>, FanOut<Inc1V6, Hub6>>;
+type Hourglass6 = Sink6<
+    FanOut<Inc1, Hub6>,
+    FanOut<Inc1V2, Hub6>,
+    FanOut<Inc1V3, Hub6>,
+    FanOut<Inc1V4, Hub6>,
+    FanOut<Inc1V5, Hub6>,
+    FanOut<Inc1V6, Hub6>,
+>;
 
-#[rustfmt::skip]
-type Hourglass9 = Sink9<FanOut<Inc1, Hub9>, FanOut<Inc1V2, Hub9>, FanOut<Inc1V3, Hub9>, FanOut<Inc1V4, Hub9>, FanOut<Inc1V5, Hub9>, FanOut<Inc1V6, Hub9>, FanOut<Inc1V7, Hub9>, FanOut<Inc1V8, Hub9>, FanOut<Inc1V9, Hub9>>;
+type Hourglass9 = Sink9<
+    FanOut<Inc1, Hub9>,
+    FanOut<Inc1V2, Hub9>,
+    FanOut<Inc1V3, Hub9>,
+    FanOut<Inc1V4, Hub9>,
+    FanOut<Inc1V5, Hub9>,
+    FanOut<Inc1V6, Hub9>,
+    FanOut<Inc1V7, Hub9>,
+    FanOut<Inc1V8, Hub9>,
+    FanOut<Inc1V9, Hub9>,
+>;
 
 impl Report {
-    pub(crate) fn new<const N: usize>() -> Self {
+    pub(crate) fn new<const WARMUP_COUNT: usize, const N: usize>() -> Self {
         Self(vec![
-            star10::<N>(),
-            star30::<N>(),
-            star100::<N>(),
-            chain5::<N>(),
-            chain25::<N>(),
-            chain100::<N>(),
-            tree_k3d2::<N>(),
-            tree_k3d3::<N>(),
-            tree_k3d4::<N>(),
-            hourglass3::<N>(),
-            hourglass6::<N>(),
-            hourglass9::<N>(),
+            star10::<WARMUP_COUNT, N>(),
+            star30::<WARMUP_COUNT, N>(),
+            star100::<WARMUP_COUNT, N>(),
+            chain5::<WARMUP_COUNT, N>(),
+            chain25::<WARMUP_COUNT, N>(),
+            chain100::<WARMUP_COUNT, N>(),
+            tree_k3d2::<WARMUP_COUNT, N>(),
+            tree_k3d3::<WARMUP_COUNT, N>(),
+            tree_k3d4::<WARMUP_COUNT, N>(),
+            hourglass3::<WARMUP_COUNT, N>(),
+            hourglass6::<WARMUP_COUNT, N>(),
+            hourglass9::<WARMUP_COUNT, N>(),
         ])
     }
 }
 
-#[rustfmt::skip]
-pub(crate) fn star10<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Star10>(
+pub(crate) fn star10<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Star10>(
         |db| {
             let inp = db.new_input::<Inp>(1);
-            Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp);
+            (inputs, 20)
         },
-        |db, Tuple10(inp, _, _, _, _, _, _, _, _, _)| db.set_input(*inp, 2),
-        20,
-        30,
+        |db, Tuple10(inp, _, _, _, _, _, _, _, _, _)| {
+            db.set_input(*inp, 2);
+            30
+        },
     );
     BenchReport::new("star10", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn star30<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Star30>(
+pub(crate) fn star30<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Star30>(
         |db| {
             let inp = db.new_input::<Inp>(1);
-            Tuple30(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple30(
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+            );
+            (inputs, 60)
         },
         |db,
-         Tuple30(inp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _)| db.set_input(*inp, 2),
-        60,
-        90,
+         Tuple30(
+            inp,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        )| {
+            db.set_input(*inp, 2);
+            90
+        },
     );
     BenchReport::new("star30", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn star100<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Star100>(
+pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Star100>(
         |db| {
             let inp = db.new_input::<Inp>(1);
-            Tuple100(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple100(
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp,
+            );
+            (inputs, 200)
         },
         |db,
-         Tuple100(inp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _,_,_,_)| db.set_input(*inp, 2),
-        200,
-        300,
+         Tuple100(
+            inp,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        )| {
+            db.set_input(*inp, 2);
+            300
+        },
     );
     BenchReport::new("star100", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn chain5<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Chain5>(
-        |db| db.new_input::<Inp>(0),
-        |db, inp| db.set_input(*inp, 1),
-        5,
-        6,
+pub(crate) fn chain5<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Chain5>(
+        |db| {
+            let inputs = db.new_input::<Inp>(0);
+            (inputs, 5)
+        },
+        |db, inp| {
+            db.set_input(*inp, 1);
+            6
+        },
     );
     BenchReport::new("chain5", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn chain25<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Chain25>(
-        |db| db.new_input::<Inp>(0),
-        |db, inp| db.set_input(*inp, 1),
-        25,
-        26,
+pub(crate) fn chain25<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Chain25>(
+        |db| {
+            let inputs = db.new_input::<Inp>(0);
+            (inputs, 25)
+        },
+        |db, inp| {
+            db.set_input(*inp, 1);
+            26
+        },
     );
     BenchReport::new("chain25", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn chain100<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Chain100>(
-        |db| db.new_input::<Inp>(0),
-        |db, inp| db.set_input(*inp, 1),
-        100,
-        101,
+pub(crate) fn chain100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Chain100>(
+        |db| {
+            let inputs = db.new_input::<Inp>(0);
+            (inputs, 100)
+        },
+        |db, inp| {
+            db.set_input(*inp, 1);
+            101
+        },
     );
     BenchReport::new("chain100", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn tree_k3d2<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, TreeK3D2>(
+pub(crate) fn tree_k3d2<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D2>(
         |db| {
             let inp = db.new_input::<Inp>(0);
-            Tuple3(inp, inp, inp)
+            let inputs = Tuple3(inp, inp, inp);
+            (inputs, 3)
         },
-        |db, Tuple3(inp, _, _)| db.set_input(*inp, 1),
-        3,
-        6,
+        |db, Tuple3(inp, _, _)| {
+            db.set_input(*inp, 1);
+            6
+        },
     );
     BenchReport::new("tree_k3d2", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn tree_k3d3<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, TreeK3D3>(
+pub(crate) fn tree_k3d3<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D3>(
         |db| {
             let inp = db.new_input::<Inp>(0);
-            Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
+            (inputs, 18)
         },
-        |db, Tuple9(inp, _, _, _, _, _, _, _, _)| db.set_input(*inp, 1),
-        18,
-        27,
+        |db, Tuple9(inp, _, _, _, _, _, _, _, _)| {
+            db.set_input(*inp, 1);
+            27
+        },
     );
     BenchReport::new("tree_k3d3", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn tree_k3d4<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, TreeK3D4>(
+pub(crate) fn tree_k3d4<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D4>(
         |db| {
             let inp = db.new_input::<Inp>(0);
-            Tuple27(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inputs = Tuple27(
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+            );
+            (inputs, 81)
         },
         |db,
-         Tuple27(inp, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _)| { db.set_input(*inp, 1) },
-        81,
-        108,
+         Tuple27(
+            inp,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+        )| {
+            db.set_input(*inp, 1);
+            108
+        },
     );
     BenchReport::new("tree_k3d4", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn hourglass3<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Hourglass3>(
+pub(crate) fn hourglass3<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass3>(
         |db| {
-            let inp = Tuple3(db.new_input::<Inp>(2), db.new_input::<Inp2>(1), db.new_input::<Inp3>(1));
-            Tuple3(inp, inp, inp)
+            let inp = Tuple3(
+                db.new_input::<Inp>(2),
+                db.new_input::<Inp2>(1),
+                db.new_input::<Inp3>(1),
+            );
+            let inputs = Tuple3(inp, inp, inp);
+            (inputs, 24)
         },
         |db, Tuple3(Tuple3(inp1, inp2, _), _, _)| {
             db.set_input(*inp1, 1);
             db.set_input(*inp2, 2);
+            24
         },
-        24,
-        24,
     );
     BenchReport::new("hourglass3", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn hourglass6<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Hourglass6>(
+pub(crate) fn hourglass6<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass6>(
         |db| {
-            let inp = Tuple6(db.new_input::<Inp>(2), db.new_input::<Inp2>(1), db.new_input::<Inp3>(1), db.new_input::<Inp4>(1), db.new_input::<Inp5>(1), db.new_input::<Inp6>(1));
-            Tuple6(inp, inp, inp, inp, inp, inp)
+            let inp = Tuple6(
+                db.new_input::<Inp>(2),
+                db.new_input::<Inp2>(1),
+                db.new_input::<Inp3>(1),
+                db.new_input::<Inp4>(1),
+                db.new_input::<Inp5>(1),
+                db.new_input::<Inp6>(1),
+            );
+            let inputs = Tuple6(inp, inp, inp, inp, inp, inp);
+            (inputs, 84)
         },
         |db, Tuple6(Tuple6(inp1, inp2, _, _, _, _), _, _, _, _, _)| {
             db.set_input(*inp1, 1);
             db.set_input(*inp2, 2);
+            84
         },
-        84,
-        84,
     );
     BenchReport::new("hourglass6", metrics)
 }
 
-#[rustfmt::skip]
-pub(crate) fn hourglass9<const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<N, Hourglass9>(
+pub(crate) fn hourglass9<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
+    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass9>(
         |db| {
-            let inp = Tuple9(db.new_input::<Inp>(2), db.new_input::<Inp2>(1), db.new_input::<Inp3>(1), db.new_input::<Inp4>(1), db.new_input::<Inp5>(1), db.new_input::<Inp6>(1), db.new_input::<Inp7>(1), db.new_input::<Inp8>(1), db.new_input::<Inp9>(1));
-            Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp)
+            let inp = Tuple9(
+                db.new_input::<Inp>(2),
+                db.new_input::<Inp2>(1),
+                db.new_input::<Inp3>(1),
+                db.new_input::<Inp4>(1),
+                db.new_input::<Inp5>(1),
+                db.new_input::<Inp6>(1),
+                db.new_input::<Inp7>(1),
+                db.new_input::<Inp8>(1),
+                db.new_input::<Inp9>(1),
+            );
+            let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
+            (inputs, 180)
         },
         |db, Tuple9(Tuple9(inp1, inp2, _, _, _, _, _, _, _), _, _, _, _, _, _, _, _)| {
             db.set_input(*inp1, 1);
             db.set_input(*inp2, 2);
-
+            180
         },
-        180,
-        180,
     );
     BenchReport::new("hourglass9", metrics)
 }
@@ -585,83 +1295,76 @@ impl BenchReport {
     }
 }
 
-fn bench_graph<const N: usize, Sink>(
-    alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> Sink::Args,
-    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args),
-    exp_cold: Sink::Out,
-    exp_update: Sink::Out,
+fn bench_graph<const WARMUP_COUNT: usize, const N: usize, Sink>(
+    alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> (Sink::Args, Sink::Out),
+    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args) -> Sink::Out,
 ) -> GraphMetrics
 where
     Sink: Query,
     Sink::Out: Copy + Eq + Debug,
 {
     GraphMetrics {
-        cold: bench_scenario::<N, _, _>(
+        cold: bench_scenario::<WARMUP_COUNT, N, _>(
             |_| {},
             |db, ()| {
-                let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs)
+                let (inputs, exp_out) = alloc_inputs(db);
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
             },
-            exp_cold,
         ),
-        memo: bench_scenario::<N, _, _>(
+        memo: bench_scenario::<WARMUP_COUNT, N, _>(
             |db| {
-                let inputs = alloc_inputs(db);
+                let (inputs, exp_out) = alloc_inputs(db);
                 db.query::<Sink>(&inputs);
-                inputs
+                (inputs, exp_out)
             },
-            |db, inputs| db.query::<Sink>(&inputs),
-            exp_cold,
+            |db, (inputs, exp_out)| {
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
+            },
         ),
-        update: bench_scenario::<N, _, _>(
+        update: bench_scenario::<WARMUP_COUNT, N, _>(
             |db| {
-                let inputs = alloc_inputs(db);
-                db.query::<Sink>(&inputs);
+                let (inputs, exp_out) = alloc_inputs(db);
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
                 inputs
             },
             |db, inputs| {
-                update_inputs(db, &inputs);
-                db.query::<Sink>(&inputs)
+                let exp_out = update_inputs(db, &inputs);
+                let out = db.query::<Sink>(&inputs);
+                assert_eq!(out, exp_out);
             },
-            exp_update,
         ),
     }
 }
 
-fn bench_scenario<const N: usize, Inp, Out>(
+fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     init: impl Copy + Fn(&mut Db<PerfMetrics>) -> Inp,
-    bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp) -> Out,
-    exp: Out,
-) -> ScenarioMetrics
-where
-    Out: Copy + Eq + Debug,
-{
-    let (_, counts, out) = bench_iter(init, bench);
-    assert_eq!(out, exp);
+    bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp),
+) -> ScenarioMetrics {
+    let (_, counts) = bench_iter(init, bench);
     for _ in 0..WARMUP_COUNT {
-        let (_, _, _) = bench_iter(init, bench);
+        let (_, _) = bench_iter(init, bench);
     }
     let timings = iter::repeat_with(|| {
-        let (timings, _, _) = bench_iter(init, bench);
+        let (timings, _) = bench_iter(init, bench);
         timings
     })
     .take(N)
     .collect();
     return ScenarioMetrics { counts, timings };
 
-    fn bench_iter<T, Out>(
+    fn bench_iter<T>(
         init: impl Fn(&mut Db<PerfMetrics>) -> T,
-        bench: impl Fn(&mut Db<PerfMetrics>, T) -> Out,
-    ) -> (Timings, Counts, Out)
-    where
-        Out: Eq + Debug,
-    {
+        bench: impl Fn(&mut Db<PerfMetrics>, T),
+    ) -> (Timings, Counts) {
         let mut db = Db::default();
         let v = init(&mut db);
         db.metrics().reset();
-        let out = bench(&mut db, v);
+        bench(&mut db, v);
         let m = db.metrics();
-        (Timings::new(m), Counts::new(m), out)
+        (Timings::new(m), Counts::new(m))
     }
 }
 
@@ -690,61 +1393,61 @@ mod tests {
 
     #[test]
     fn star10() {
-        black_box(bench::star10::<1>());
+        black_box(bench::star10::<0, 1>());
     }
 
     #[test]
     fn star30() {
-        black_box(bench::star30::<1>());
+        black_box(bench::star30::<0, 1>());
     }
 
     #[test]
     fn star100() {
-        black_box(bench::star100::<1>());
+        black_box(bench::star100::<0, 1>());
     }
 
     #[test]
     fn chain5() {
-        black_box(bench::chain5::<1>());
+        black_box(bench::chain5::<0, 1>());
     }
 
     #[test]
     fn chain25() {
-        black_box(bench::chain25::<1>());
+        black_box(bench::chain25::<0, 1>());
     }
 
     #[test]
     fn chain100() {
-        black_box(bench::chain100::<1>());
+        black_box(bench::chain100::<0, 1>());
     }
 
     #[test]
     fn tree_k3d2() {
-        black_box(bench::tree_k3d2::<1>());
+        black_box(bench::tree_k3d2::<0, 1>());
     }
 
     #[test]
     fn tree_k3d3() {
-        black_box(bench::tree_k3d3::<1>());
+        black_box(bench::tree_k3d3::<0, 1>());
     }
 
     #[test]
     fn tree_k3d4() {
-        black_box(bench::tree_k3d4::<1>());
+        black_box(bench::tree_k3d4::<0, 1>());
     }
 
     #[test]
     fn hourglass3() {
-        black_box(bench::hourglass3::<1>());
+        black_box(bench::hourglass3::<0, 1>());
     }
 
     #[test]
     fn hourglass6() {
-        black_box(bench::hourglass6::<1>());
+        black_box(bench::hourglass6::<0, 1>());
     }
 
     #[test]
     fn hourglass9() {
-        black_box(bench::hourglass9::<1>());
+        black_box(bench::hourglass9::<0, 1>());
     }
 }
