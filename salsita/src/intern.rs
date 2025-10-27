@@ -1,6 +1,6 @@
 use crate::query::Input;
 use crate::query::InputId;
-use alloc::rc::Rc;
+use alloc::sync::Arc;
 use core::any::Any;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
@@ -13,7 +13,7 @@ const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another
 pub(crate) struct Interner {
     print_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
-    values: Vec<Rc<dyn Any>>,
+    values: Vec<Arc<dyn Any + Send + Sync>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -45,7 +45,7 @@ impl Interner {
 
     pub(crate) fn intern<T>(&mut self, value: &T) -> InternId
     where
-        T: Clone + Eq + Hash + 'static,
+        T: Clone + Eq + Hash + Send + Sync + 'static,
     {
         let bucket = Self::find_bucket(&self.print_hasher, &mut self.index, value);
         match Self::find_bucket_entry::<T>(bucket, &self.values, value) {
@@ -66,7 +66,11 @@ impl Interner {
         index.entry(print).or_default()
     }
 
-    fn find_bucket_entry<T>(bucket: &Bucket, values: &[Rc<dyn Any>], value: &T) -> Option<InternId>
+    fn find_bucket_entry<T>(
+        bucket: &Bucket,
+        values: &[Arc<dyn Any + Send + Sync>],
+        value: &T,
+    ) -> Option<InternId>
     where
         T: Eq + 'static,
     {
@@ -80,22 +84,29 @@ impl Interner {
         })
     }
 
-    fn insert_value<T>(bucket: &mut Bucket, values: &mut Vec<Rc<dyn Any>>, value: &T) -> InternId
+    fn insert_value<T>(
+        bucket: &mut Bucket,
+        values: &mut Vec<Arc<dyn Any + Send + Sync>>,
+        value: &T,
+    ) -> InternId
     where
-        T: Clone + 'static,
+        T: Clone + Send + Sync + 'static,
     {
         let idx = values.len();
         let id = InternId { idx };
-        values.push(Rc::new(value.clone()));
+        values.push(Arc::new(value.clone()));
         bucket.0.push(id);
         id
     }
 
-    pub(crate) fn interned(&self, id: InternId) -> Rc<dyn Any> {
-        Rc::clone(Self::interned_ref(&self.values, id))
+    pub(crate) fn interned(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
+        Arc::clone(Self::interned_ref(&self.values, id))
     }
 
-    fn interned_ref(values: &[Rc<dyn Any>], id: InternId) -> &Rc<dyn Any> {
+    fn interned_ref(
+        values: &[Arc<dyn Any + Send + Sync>],
+        id: InternId,
+    ) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx).expect(UNKNOWN_ID)
     }
 }

@@ -10,16 +10,16 @@ use core::hash::Hasher;
 use core::marker::PhantomData;
 
 pub trait Query: 'static {
-    type Args: Clone + Eq + Hash;
     type Out: Clone + Eq;
+    type Args: Clone + Eq + Hash + Send + Sync;
 
     fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics;
 }
 
-pub trait Input: 'static {
-    type Value: Clone + Eq + Hash;
+pub trait Input: Send + Sync + 'static {
+    type Value: Clone + Eq + Hash + Send + Sync;
 }
 
 pub struct InputId<I>(MemoId, PhantomData<I>)
