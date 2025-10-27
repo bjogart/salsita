@@ -7,9 +7,11 @@ use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
+use alloc::sync::Arc;
 use core::cell::RefCell;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
+use std::sync::RwLock;
 
 mod intern;
 pub mod memo;
@@ -18,17 +20,19 @@ pub mod query;
 #[cfg(test)]
 mod tests;
 
+const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
+
 #[derive(Debug, Default)]
 pub struct Db<M = ()> {
-    global: GlobalState<M>,
+    global: Arc<GlobalState<M>>,
     active_queries: ActiveQueryStack,
 }
 
 #[derive(Debug, Default)]
 struct GlobalState<M> {
     rev: GlobalRevision,
-    interner: RefCell<Interner>,
-    memos: RefCell<Memos<M>>,
+    interner: RwLock<Interner>,
+    memos: RwLock<Memos<M>>,
     metrics: M,
 }
 
@@ -52,7 +56,7 @@ where
     M: Metrics,
 {
     #[must_use]
-    pub const fn metrics(&self) -> &M {
+    pub fn metrics(&self) -> &M {
         &self.global.metrics
     }
 
@@ -61,12 +65,13 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let mut interner = self.global.interner.borrow_mut();
+        let mut interner = self.global.interner.write().expect(INCONSISTENT_STATE);
         interner.intern_input_id(|args_id| {
             let memo_id = self
                 .global
                 .memos
-                .borrow_mut()
+                .write()
+                .expect(INCONSISTENT_STATE)
                 .new_input::<I>(rev, args_id, value);
             InputId::from(memo_id)
         })
@@ -77,7 +82,7 @@ where
         I: Input,
     {
         let rev = self.global.rev.bump();
-        let mut memos = self.global.memos.borrow_mut();
+        let mut memos = self.global.memos.write().expect(INCONSISTENT_STATE);
         let memo = memos.memo_mut(id.memo_id());
         memo.value = Some(Box::new(value));
         memo.last_verified = rev;
@@ -89,8 +94,18 @@ where
         Q: Query,
     {
         let _query_guard = self.global.metrics.query_scope();
-        let args_id = self.global.interner.borrow_mut().intern(args);
-        let memo_id = self.global.memos.borrow_mut().intern::<Q>(args_id);
+        let args_id = self
+            .global
+            .interner
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .intern(args);
+        let memo_id = self
+            .global
+            .memos
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .intern::<Q>(args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
@@ -99,13 +114,14 @@ where
         if let Some(caller) = self.active_queries.active_query() {
             self.global
                 .memos
-                .borrow_mut()
+                .write()
+                .expect(INCONSISTENT_STATE)
                 .memo_mut(caller)
                 .deps
                 .push(memo_id);
         }
         let (last_verified, deps, has_value) = {
-            let memos = self.global.memos.borrow();
+            let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
             let memo = memos.memo(memo_id);
             let last_verified = memo.last_verified;
             if last_verified == current_rev {
@@ -121,7 +137,8 @@ where
         if !deps_postdate_memo && has_value {
             self.global
                 .memos
-                .borrow_mut()
+                .write()
+                .expect(INCONSISTENT_STATE)
                 .memo_mut(memo_id)
                 .last_verified = current_rev;
             return;
@@ -131,12 +148,17 @@ where
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
         let eval = {
-            let mut memos = self.global.memos.borrow_mut();
+            let mut memos = self.global.memos.write().expect(INCONSISTENT_STATE);
             let memo = memos.memo_mut(memo_id);
             memo.deps.clear();
             memo.eval
         };
-        let args = self.global.interner.borrow().interned(memo_id.args());
+        let args = self
+            .global
+            .interner
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .interned(memo_id.args());
         let _stack_len = self.active_queries.len();
         let out = {
             let _active_query_guard = self.active_queries.push_query(memo_id);
@@ -144,7 +166,7 @@ where
             eval(self, args.as_ref())
         };
         debug_assert_eq!(self.active_queries.len(), _stack_len);
-        let mut memos = self.global.memos.borrow_mut();
+        let mut memos = self.global.memos.write().expect(INCONSISTENT_STATE);
         let memo = memos.memo_mut(memo_id);
         memo.last_verified = current_rev;
         if let Some(prev) = memo.value.as_ref()
@@ -163,7 +185,13 @@ where
         dep: MemoId,
     ) -> bool {
         self.verify_memo(current_rev, dep);
-        self.global.memos.borrow().memo(dep).last_changed > memo_last_verified
+        self.global
+            .memos
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memo(dep)
+            .last_changed
+            > memo_last_verified
     }
 
     fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
@@ -172,7 +200,8 @@ where
     {
         self.global
             .memos
-            .borrow()
+            .read()
+            .expect(INCONSISTENT_STATE)
             .memo(memo_id)
             .value::<Q::Out>()
             .clone()
