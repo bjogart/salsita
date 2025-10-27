@@ -1,4 +1,4 @@
-use crate::Db;
+use crate::Snapshot;
 use crate::memo::MemoId;
 use crate::metrics::Metrics;
 use core::cmp::Ordering;
@@ -10,16 +10,16 @@ use core::hash::Hasher;
 use core::marker::PhantomData;
 
 pub trait Query: 'static {
-    type Args: Clone + Eq + Hash;
-    type Out: Clone + Eq;
+    type Args: Clone + Eq + Hash + Send + Sync;
+    type Out: Clone + Eq + Send + Sync;
 
-    fn eval<M>(db: &Db<M>, args: &Self::Args) -> Self::Out
+    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics;
 }
 
-pub trait Input: 'static {
-    type Value: Clone + Eq + Hash;
+pub trait Input: Send + Sync + 'static {
+    type Value: Clone + Eq + Hash + Send + Sync;
 }
 
 pub struct InputId<I>(MemoId, PhantomData<I>)
@@ -34,7 +34,7 @@ where
 
     type Out = <Self as Input>::Value;
 
-    fn eval<M>(_: &Db<M>, _: &Self::Args) -> Self::Out
+    fn eval<M>(_: &Snapshot<M>, _: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {

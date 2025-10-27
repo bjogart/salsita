@@ -134,6 +134,7 @@ use core::iter;
 use salsita::Db;
 use salsita::metrics::PerfMetrics;
 use salsita::query::Query;
+use std::thread;
 
 #[derive(serde::Serialize)]
 pub(crate) struct Report(Vec<BenchReport>);
@@ -141,36 +142,12 @@ pub(crate) struct Report(Vec<BenchReport>);
 #[derive(serde::Serialize)]
 pub(crate) struct BenchReport {
     name: String,
-    metrics: GraphMetrics,
-}
-
-#[derive(serde::Serialize)]
-pub(crate) struct GraphMetrics {
-    /// Measurements for a full build scenario.
-    ///
-    /// Starting with an empty `Db`, call the sink query once, causing every
-    /// reachable query to be evaluated and inserted into the memo table. This
-    /// measures the cost of an initial full build (time to register memos &
-    /// evaluate nodes).
-    cold: ScenarioMetrics,
-    /// Measurements for a no-op scenario.
-    ///
-    /// Starting with a fresh `Db` that is already populated/memoized for the
-    /// graph, call the sink query. No inputs are changed as part of this
-    /// scenario. This measures steady-state read/query cost when the memo table
-    /// is warm and every `Db::query` call is a memo hit.
-    memo: ScenarioMetrics,
-    /// Measurements for an incremental scenario.
-    ///
-    /// Starting with a fresh `Db` populated with memos for the whole graph,
-    /// change exactly one input, then call the sink query. This measures
-    /// incremental recomputation cost for the changed inputs and its
-    /// dependents. Everything else is memoized.
-    update: ScenarioMetrics,
+    metrics: Vec<ScenarioMetrics>,
 }
 
 #[derive(serde::Serialize)]
 struct ScenarioMetrics {
+    name: String,
     counts: Counts,
     timings: Vec<Timings>,
 }
@@ -199,7 +176,7 @@ struct Timings {
     query: u64,
     /// Sum of time spent executing `Query::eval` across the whole call tree.
     /// Because `Query::eval` implementations may recursively call
-    /// `db.query::<...>` (and those queries may themselves call `eval`),
+    /// `snapshot.query::<...>` (and those queries may themselves call `eval`),
     /// `eval_time_ns` includes the nested `eval` time in the entire evaluation
     /// tree. In other words, `eval_time_ns` is the total CPU time spent
     /// *inside* `eval` implementations.
@@ -890,91 +867,122 @@ type Hourglass9 = Sink9<
 >;
 
 impl Report {
-    pub(crate) fn new<const WARMUP_COUNT: usize, const N: usize>() -> Self {
+    pub(crate) fn new<
+        const WARMUP_COUNT: usize,
+        const N: usize,
+        const PARALLEL_SNAPSHOT_COUNT: usize,
+        const PARALLEL_GENERATION_COUNT: usize,
+    >() -> Self {
         Self(vec![
-            star10::<WARMUP_COUNT, N>(),
-            star30::<WARMUP_COUNT, N>(),
-            star100::<WARMUP_COUNT, N>(),
-            chain5::<WARMUP_COUNT, N>(),
-            chain25::<WARMUP_COUNT, N>(),
-            chain100::<WARMUP_COUNT, N>(),
-            tree_k3d2::<WARMUP_COUNT, N>(),
-            tree_k3d3::<WARMUP_COUNT, N>(),
-            tree_k3d4::<WARMUP_COUNT, N>(),
-            hourglass3::<WARMUP_COUNT, N>(),
-            hourglass6::<WARMUP_COUNT, N>(),
-            hourglass9::<WARMUP_COUNT, N>(),
+            star10::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            star30::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            star100::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            chain5::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            chain25::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            chain100::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            tree_k3d2::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            tree_k3d3::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            tree_k3d4::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            hourglass3::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            hourglass6::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            hourglass9::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
         ])
     }
 }
 
-pub(crate) fn star10<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Star10>(
-        |db| {
-            let inp = db.new_input::<Inp>(1);
-            let inputs = Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp);
-            (inputs, 20)
-        },
-        |db, Tuple10(inp, _, _, _, _, _, _, _, _, _)| {
-            db.set_input(*inp, 2);
-            30
-        },
-    );
+pub(crate) fn star10<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics =
+        bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Star10>(
+            |db| {
+                let inp = db.new_input::<Inp>(1);
+                let inputs = Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp);
+                (inputs, 20)
+            },
+            |db, Tuple10(inp, _, _, _, _, _, _, _, _, _), toggle| {
+                let toggle = usize::from(toggle);
+                db.set_input(*inp, 1 + toggle);
+                20 + 10 * toggle
+            },
+        );
     BenchReport::new("star10", metrics)
 }
 
-pub(crate) fn star30<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Star30>(
-        |db| {
-            let inp = db.new_input::<Inp>(1);
-            let inputs = Tuple30(
-                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
-                inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
-            );
-            (inputs, 60)
-        },
-        |db,
-         Tuple30(
-            inp,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-            _,
-        )| {
-            db.set_input(*inp, 2);
-            90
-        },
-    );
+pub(crate) fn star30<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics =
+        bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Star30>(
+            |db| {
+                let inp = db.new_input::<Inp>(1);
+                let inputs = Tuple30(
+                    inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                    inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
+                );
+                (inputs, 60)
+            },
+            |db,
+             Tuple30(
+                inp,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _,
+            ),
+             toggle| {
+                let toggle = usize::from(toggle);
+                db.set_input(*inp, 1 + toggle);
+                60 + 30 * toggle
+            },
+        );
     BenchReport::new("star30", metrics)
 }
 
-pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Star100>(
+pub(crate) fn star100<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        Star100,
+    >(
         |db| {
             let inp = db.new_input::<Inp>(1);
             let inputs = Tuple100(
@@ -1090,88 +1098,156 @@ pub(crate) fn star100<const WARMUP_COUNT: usize, const N: usize>() -> BenchRepor
             _,
             _,
             _,
-        )| {
-            db.set_input(*inp, 2);
-            300
+        ),
+         toggle| {
+            let toggle = usize::from(toggle);
+            db.set_input(*inp, 1 + toggle);
+            200 + toggle * 100
         },
     );
     BenchReport::new("star100", metrics)
 }
 
-pub(crate) fn chain5<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Chain5>(
-        |db| {
-            let inputs = db.new_input::<Inp>(0);
-            (inputs, 5)
-        },
-        |db, inp| {
-            db.set_input(*inp, 1);
-            6
-        },
-    );
+pub(crate) fn chain5<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics =
+        bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Chain5>(
+            |db| {
+                let inputs = db.new_input::<Inp>(0);
+                (inputs, 5)
+            },
+            |db, inp, toggle| {
+                let toggle = usize::from(toggle);
+                db.set_input(*inp, toggle);
+                5 + toggle
+            },
+        );
     BenchReport::new("chain5", metrics)
 }
 
-pub(crate) fn chain25<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Chain25>(
+pub(crate) fn chain25<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        Chain25,
+    >(
         |db| {
             let inputs = db.new_input::<Inp>(0);
             (inputs, 25)
         },
-        |db, inp| {
-            db.set_input(*inp, 1);
-            26
+        |db, inp, toggle| {
+            let toggle = usize::from(toggle);
+            db.set_input(*inp, toggle);
+            25 + toggle
         },
     );
     BenchReport::new("chain25", metrics)
 }
 
-pub(crate) fn chain100<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Chain100>(
+pub(crate) fn chain100<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        Chain100,
+    >(
         |db| {
             let inputs = db.new_input::<Inp>(0);
             (inputs, 100)
         },
-        |db, inp| {
-            db.set_input(*inp, 1);
-            101
+        |db, inp, toggle| {
+            let toggle = usize::from(toggle);
+            db.set_input(*inp, toggle);
+            100 + toggle
         },
     );
     BenchReport::new("chain100", metrics)
 }
 
-pub(crate) fn tree_k3d2<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D2>(
+pub(crate) fn tree_k3d2<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        TreeK3D2,
+    >(
         |db| {
             let inp = db.new_input::<Inp>(0);
             let inputs = Tuple3(inp, inp, inp);
             (inputs, 3)
         },
-        |db, Tuple3(inp, _, _)| {
-            db.set_input(*inp, 1);
-            6
+        |db, Tuple3(inp, _, _), toggle| {
+            let toggle = usize::from(toggle);
+            db.set_input(*inp, toggle);
+            3 + 3 * toggle
         },
     );
     BenchReport::new("tree_k3d2", metrics)
 }
 
-pub(crate) fn tree_k3d3<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D3>(
+pub(crate) fn tree_k3d3<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        TreeK3D3,
+    >(
         |db| {
             let inp = db.new_input::<Inp>(0);
             let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
             (inputs, 18)
         },
-        |db, Tuple9(inp, _, _, _, _, _, _, _, _)| {
-            db.set_input(*inp, 1);
-            27
+        |db, Tuple9(inp, _, _, _, _, _, _, _, _), toggle| {
+            let toggle = usize::from(toggle);
+            db.set_input(*inp, toggle);
+            18 + 9 * toggle
         },
     );
     BenchReport::new("tree_k3d3", metrics)
 }
 
-pub(crate) fn tree_k3d4<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, TreeK3D4>(
+pub(crate) fn tree_k3d4<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        TreeK3D4,
+    >(
         |db| {
             let inp = db.new_input::<Inp>(0);
             let inputs = Tuple27(
@@ -1209,16 +1285,29 @@ pub(crate) fn tree_k3d4<const WARMUP_COUNT: usize, const N: usize>() -> BenchRep
             _,
             _,
             _,
-        )| {
-            db.set_input(*inp, 1);
-            108
+        ),
+         toggle| {
+            let toggle = usize::from(toggle);
+            db.set_input(*inp, toggle);
+            81 + 27 * toggle
         },
     );
     BenchReport::new("tree_k3d4", metrics)
 }
 
-pub(crate) fn hourglass3<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass3>(
+pub(crate) fn hourglass3<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        Hourglass3,
+    >(
         |db| {
             let inp = Tuple3(
                 db.new_input::<Inp>(2),
@@ -1228,17 +1317,28 @@ pub(crate) fn hourglass3<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
             let inputs = Tuple3(inp, inp, inp);
             (inputs, 24)
         },
-        |db, Tuple3(Tuple3(inp1, inp2, _), _, _)| {
-            db.set_input(*inp1, 1);
-            db.set_input(*inp2, 2);
+        |db, Tuple3(Tuple3(inp1, inp2, _), _, _), toggle| {
+            db.set_input(*inp1, 1 + usize::from(!toggle));
+            db.set_input(*inp2, 1 + usize::from(toggle));
             24
         },
     );
     BenchReport::new("hourglass3", metrics)
 }
 
-pub(crate) fn hourglass6<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass6>(
+pub(crate) fn hourglass6<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        Hourglass6,
+    >(
         |db| {
             let inp = Tuple6(
                 db.new_input::<Inp>(2),
@@ -1251,17 +1351,28 @@ pub(crate) fn hourglass6<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
             let inputs = Tuple6(inp, inp, inp, inp, inp, inp);
             (inputs, 84)
         },
-        |db, Tuple6(Tuple6(inp1, inp2, _, _, _, _), _, _, _, _, _)| {
-            db.set_input(*inp1, 1);
-            db.set_input(*inp2, 2);
+        |db, Tuple6(Tuple6(inp1, inp2, _, _, _, _), _, _, _, _, _), toggle| {
+            db.set_input(*inp1, 1 + usize::from(!toggle));
+            db.set_input(*inp2, 1 + usize::from(toggle));
             84
         },
     );
     BenchReport::new("hourglass6", metrics)
 }
 
-pub(crate) fn hourglass9<const WARMUP_COUNT: usize, const N: usize>() -> BenchReport {
-    let metrics = bench_graph::<WARMUP_COUNT, N, Hourglass9>(
+pub(crate) fn hourglass9<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+>() -> BenchReport {
+    let metrics = bench_graph::<
+        WARMUP_COUNT,
+        N,
+        PARALLEL_SNAPSHOT_COUNT,
+        PARALLEL_GENERATION_COUNT,
+        Hourglass9,
+    >(
         |db| {
             let inp = Tuple9(
                 db.new_input::<Inp>(2),
@@ -1277,9 +1388,9 @@ pub(crate) fn hourglass9<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
             let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
             (inputs, 180)
         },
-        |db, Tuple9(Tuple9(inp1, inp2, _, _, _, _, _, _, _), _, _, _, _, _, _, _, _)| {
-            db.set_input(*inp1, 1);
-            db.set_input(*inp2, 2);
+        |db, Tuple9(Tuple9(inp1, inp2, _, _, _, _, _, _, _), _, _, _, _, _, _, _, _), toggle| {
+            db.set_input(*inp1, 1 + usize::from(!toggle));
+            db.set_input(*inp2, 1 + usize::from(toggle));
             180
         },
     );
@@ -1287,7 +1398,7 @@ pub(crate) fn hourglass9<const WARMUP_COUNT: usize, const N: usize>() -> BenchRe
 }
 
 impl BenchReport {
-    fn new(name: &'static str, metrics: GraphMetrics) -> Self {
+    fn new(name: &'static str, metrics: Vec<ScenarioMetrics>) -> Self {
         Self {
             name: name.to_owned(),
             metrics,
@@ -1295,51 +1406,123 @@ impl BenchReport {
     }
 }
 
-fn bench_graph<const WARMUP_COUNT: usize, const N: usize, Sink>(
+fn bench_graph<
+    const WARMUP_COUNT: usize,
+    const N: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
+    const PARALLEL_GENERATION_COUNT: usize,
+    Sink,
+>(
     alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> (Sink::Args, Sink::Out),
-    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args) -> Sink::Out,
-) -> GraphMetrics
+    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args, bool) -> Sink::Out,
+) -> Vec<ScenarioMetrics>
 where
     Sink: Query,
     Sink::Out: Copy + Eq + Debug,
 {
-    GraphMetrics {
-        cold: bench_scenario::<WARMUP_COUNT, N, _>(
-            |_| {},
-            |db, ()| {
-                let (inputs, exp_out) = alloc_inputs(db);
-                let out = db.query::<Sink>(&inputs);
-                assert_eq!(out, exp_out);
-            },
-        ),
-        memo: bench_scenario::<WARMUP_COUNT, N, _>(
-            |db| {
-                let (inputs, exp_out) = alloc_inputs(db);
-                db.query::<Sink>(&inputs);
-                (inputs, exp_out)
-            },
-            |db, (inputs, exp_out)| {
-                let out = db.query::<Sink>(&inputs);
-                assert_eq!(out, exp_out);
-            },
-        ),
-        update: bench_scenario::<WARMUP_COUNT, N, _>(
-            |db| {
-                let (inputs, exp_out) = alloc_inputs(db);
-                let out = db.query::<Sink>(&inputs);
-                assert_eq!(out, exp_out);
-                inputs
-            },
-            |db, inputs| {
-                let exp_out = update_inputs(db, &inputs);
-                let out = db.query::<Sink>(&inputs);
-                assert_eq!(out, exp_out);
-            },
-        ),
-    }
+    // Measurements for a full build scenario.
+    //
+    // Starting with an empty `Db`, call the sink query once, causing every
+    // reachable query to be evaluated and inserted into the memo table. This
+    // measures the cost of an initial full build (time to register memos &
+    // evaluate nodes).
+    let cold = bench_scenario::<WARMUP_COUNT, N, _>(
+        "cold",
+        |_| {},
+        |db, ()| {
+            let (inputs, exp_out) = alloc_inputs(db);
+            let out = db.snapshot().query::<Sink>(&inputs);
+            assert_eq!(out, exp_out);
+        },
+    );
+
+    // Measurements for a no-op scenario.
+    //
+    // Starting with a fresh `Db` that is already populated/memoized for the
+    // graph, call the sink query. No inputs are changed as part of this
+    // scenario. This measures steady-state read/query cost when the memo table
+    // is warm and every `Db::query` call is a memo hit.
+    let memo = bench_scenario::<WARMUP_COUNT, N, _>(
+        "memo",
+        |db| {
+            let (inputs, exp_out) = alloc_inputs(db);
+            db.snapshot().query::<Sink>(&inputs);
+            (inputs, exp_out)
+        },
+        |db, (inputs, exp_out)| {
+            let out = db.snapshot().query::<Sink>(&inputs);
+            assert_eq!(out, exp_out);
+        },
+    );
+
+    // Measurements for an incremental scenario.
+    //
+    // Starting with a fresh `Db` populated with memos for the whole graph,
+    // change exactly one input, then call the sink query. This measures
+    // incremental recomputation cost for the changed inputs and its
+    // dependents. Everything else is memoized.
+    let update = bench_scenario::<WARMUP_COUNT, N, _>(
+        "update",
+        |db| {
+            let (inputs, exp_out) = alloc_inputs(db);
+            let out = db.snapshot().query::<Sink>(&inputs);
+            assert_eq!(out, exp_out);
+            inputs
+        },
+        |db, inputs| {
+            let exp_out = update_inputs(db, &inputs, true);
+            let out = db.snapshot().query::<Sink>(&inputs);
+            assert_eq!(out, exp_out);
+        },
+    );
+
+    // Measurements for a parallel scenario.
+    //
+    // Starting with a fresh `Db`, this function calls the sink query multiple
+    // times from parallel snapshots while inputs are modified from the main
+    // thread. Measures ability of the `Db` to parallelize query invocations.
+    let parallel = bench_scenario::<WARMUP_COUNT, N, _>(
+        "parallel",
+        |db| {
+            let (inputs, exp_out) = alloc_inputs(db);
+            let out = db.snapshot().query::<Sink>(&inputs);
+            assert_eq!(out, exp_out);
+            inputs
+        },
+        |db, inputs| {
+            let mut toggle = false;
+            let mut handles =
+                Vec::with_capacity(PARALLEL_GENERATION_COUNT * PARALLEL_SNAPSHOT_COUNT);
+            for generation in 0..PARALLEL_GENERATION_COUNT {
+                toggle = !toggle;
+                let exp_out = update_inputs(db, &inputs, toggle);
+                for thread in 0..PARALLEL_SNAPSHOT_COUNT {
+                    handles.push({
+                        thread::Builder::new()
+                            .name(format!("eval_{generation}_{thread}"))
+                            .spawn({
+                                let inputs = inputs.clone();
+                                let snapshot = db.snapshot();
+                                move || {
+                                    let out = snapshot.query::<Sink>(&inputs);
+                                    assert_eq!(out, exp_out);
+                                }
+                            })
+                            .expect("failed to spawn thread")
+                    });
+                }
+            }
+            for handle in handles.drain(..) {
+                handle.join().expect("parallel evaluation failed");
+            }
+        },
+    );
+
+    vec![cold, memo, update, parallel]
 }
 
 fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
+    name: &'static str,
     init: impl Copy + Fn(&mut Db<PerfMetrics>) -> Inp,
     bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp),
 ) -> ScenarioMetrics {
@@ -1353,7 +1536,11 @@ fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     })
     .take(N)
     .collect();
-    return ScenarioMetrics { counts, timings };
+    return ScenarioMetrics {
+        name: name.to_owned(),
+        counts,
+        timings,
+    };
 
     fn bench_iter<T>(
         init: impl Fn(&mut Db<PerfMetrics>) -> T,
@@ -1393,61 +1580,61 @@ mod tests {
 
     #[test]
     fn star10() {
-        black_box(bench::star10::<0, 1>());
+        black_box(bench::star10::<0, 1, 2, 2>());
     }
 
     #[test]
     fn star30() {
-        black_box(bench::star30::<0, 1>());
+        black_box(bench::star30::<0, 1, 2, 2>());
     }
 
     #[test]
     fn star100() {
-        black_box(bench::star100::<0, 1>());
+        black_box(bench::star100::<0, 1, 2, 2>());
     }
 
     #[test]
     fn chain5() {
-        black_box(bench::chain5::<0, 1>());
+        black_box(bench::chain5::<0, 1, 2, 2>());
     }
 
     #[test]
     fn chain25() {
-        black_box(bench::chain25::<0, 1>());
+        black_box(bench::chain25::<0, 1, 2, 2>());
     }
 
     #[test]
     fn chain100() {
-        black_box(bench::chain100::<0, 1>());
+        black_box(bench::chain100::<0, 1, 2, 2>());
     }
 
     #[test]
     fn tree_k3d2() {
-        black_box(bench::tree_k3d2::<0, 1>());
+        black_box(bench::tree_k3d2::<0, 1, 2, 2>());
     }
 
     #[test]
     fn tree_k3d3() {
-        black_box(bench::tree_k3d3::<0, 1>());
+        black_box(bench::tree_k3d3::<0, 1, 2, 2>());
     }
 
     #[test]
     fn tree_k3d4() {
-        black_box(bench::tree_k3d4::<0, 1>());
+        black_box(bench::tree_k3d4::<0, 1, 2, 2>());
     }
 
     #[test]
     fn hourglass3() {
-        black_box(bench::hourglass3::<0, 1>());
+        black_box(bench::hourglass3::<0, 1, 2, 2>());
     }
 
     #[test]
     fn hourglass6() {
-        black_box(bench::hourglass6::<0, 1>());
+        black_box(bench::hourglass6::<0, 1, 2, 2>());
     }
 
     #[test]
     fn hourglass9() {
-        black_box(bench::hourglass9::<0, 1>());
+        black_box(bench::hourglass9::<0, 1, 2, 2>());
     }
 }

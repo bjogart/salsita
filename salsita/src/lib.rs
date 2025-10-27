@@ -7,9 +7,15 @@ use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
+use alloc::sync::Arc;
+use core::any::Any;
 use core::cell::RefCell;
+use core::ops::Deref;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
+use std::sync::Condvar;
+use std::sync::Mutex;
+use std::sync::RwLock;
 
 mod intern;
 pub mod memo;
@@ -18,12 +24,32 @@ pub mod query;
 #[cfg(test)]
 mod tests;
 
+const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
+
 #[derive(Debug, Default)]
 pub struct Db<M = ()> {
-    interner: RefCell<Interner>,
-    memos: RefCell<Memos<M>>,
+    global: Arc<GlobalState<M>>,
+    /// Coordinates snapshots with `Arc<GlobalState>` as the counter.
+    ///
+    /// This field must drop after [`GlobalState`] to ensure [`Db::set_input`]
+    /// is notified after the reference count is decremented.
+    sync: SnapshotSync,
+}
+
+#[derive(Debug)]
+pub struct Snapshot<M> {
+    db: Db<M>,
+    active_queries: RefCell<ActiveQueryStack>,
+}
+
+#[derive(Debug, Default)]
+struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
+
+#[derive(Debug, Default)]
+struct GlobalState<M> {
     rev: GlobalRevision,
-    active_queries: ActiveQueryStack,
+    interner: RwLock<Interner>,
+    memos: RwLock<Memos<M>>,
     metrics: M,
 }
 
@@ -34,30 +60,58 @@ struct GlobalRevision(AtomicUsize);
 struct Revision(usize);
 
 #[derive(Debug, Default)]
-struct ActiveQueryStack {
-    ids: RefCell<Vec<MemoId>>,
+struct ActiveQueryStack(Vec<ActiveQuery>);
+
+#[derive(Debug, Default)]
+struct ActiveQuery {
+    deps: Vec<MemoId>,
 }
 
-struct PopActiveQuery<'stack> {
-    stack: &'stack ActiveQueryStack,
+struct CommitQuery<'snap, M>
+where
+    M: Metrics,
+{
+    snapshot: &'snap Snapshot<M>,
+    memo: CommitMemo<'snap, M>,
+}
+
+struct CommitMemo<'db, M>
+where
+    M: Metrics,
+{
+    db: &'db Db<M>,
+    current_rev: Revision,
+    memo_id: MemoId,
+    change: Option<MemoChange>,
+}
+
+struct MemoChange {
+    deps: Vec<MemoId>,
+    value: Box<dyn Any + Send + Sync>,
 }
 
 impl<M> Db<M>
 where
     M: Metrics,
 {
-    pub const fn metrics(&self) -> &M {
-        &self.metrics
+    #[must_use]
+    pub fn metrics(&self) -> &M {
+        &self.global.metrics
     }
 
     pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
     where
         I: Input,
     {
-        let rev = self.rev.get();
-        let mut interner = self.interner.borrow_mut();
+        let rev = self.global.rev.get();
+        let mut interner = self.global.interner.write().expect(INCONSISTENT_STATE);
         interner.intern_input_id(|args_id| {
-            let memo_id = self.memos.borrow_mut().new_input::<I>(rev, args_id, value);
+            let memo_id = self
+                .global
+                .memos
+                .write()
+                .expect(INCONSISTENT_STATE)
+                .new_input::<I>(rev, args_id, value);
             InputId::from(memo_id)
         })
     }
@@ -66,31 +120,67 @@ where
     where
         I: Input,
     {
-        let rev = self.rev.bump();
-        let mut memos = self.memos.borrow_mut();
+        let global = {
+            let SnapshotSync(sync) = &self.sync;
+            let (waiter, notifier) = Arc::as_ref(sync);
+            let mut guard = waiter.lock().expect(INCONSISTENT_STATE);
+            loop {
+                if let Some(global) = Arc::get_mut(&mut self.global) {
+                    break global;
+                }
+                guard = notifier.wait(guard).expect(INCONSISTENT_STATE);
+            }
+        };
+
+        let rev = global.rev.bump();
+        let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
         let memo = memos.memo_mut(id.memo_id());
         memo.value = Some(Box::new(value));
         memo.last_verified = rev;
         memo.last_changed = rev;
     }
 
+    #[must_use]
+    pub fn snapshot(&self) -> Snapshot<M> {
+        Snapshot {
+            db: Self {
+                global: Arc::clone(&self.global),
+                sync: SnapshotSync(Arc::clone(&self.sync.0)),
+            },
+            active_queries: RefCell::default(),
+        }
+    }
+}
+
+impl<M> Snapshot<M>
+where
+    M: Metrics,
+{
     pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
     where
         Q: Query,
     {
-        let _query_guard = self.metrics.query_scope();
-        let args_id = self.interner.borrow_mut().intern(args);
-        let memo_id = self.memos.borrow_mut().intern::<Q>(args_id);
-        self.verify_memo(self.rev.get(), memo_id);
+        let _query_guard = self.global.metrics.query_scope();
+        let args_id = self
+            .global
+            .interner
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .intern(args);
+        let memo_id = self
+            .global
+            .memos
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .intern::<Q>(args_id);
+        self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        if let Some(caller) = self.active_queries.active_query() {
-            self.memos.borrow_mut().memo_mut(caller).deps.push(memo_id);
-        }
+        self.track_dep(memo_id);
         let (last_verified, deps, has_value) = {
-            let memos = self.memos.borrow();
+            let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
             let memo = memos.memo(memo_id);
             let last_verified = memo.last_verified;
             if last_verified == current_rev {
@@ -104,37 +194,44 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && has_value {
-            self.memos.borrow_mut().memo_mut(memo_id).last_verified = current_rev;
+            self.global
+                .memos
+                .write()
+                .expect(INCONSISTENT_STATE)
+                .memo_mut(memo_id)
+                .last_verified = current_rev;
             return;
         }
         self.eval_memo(current_rev, memo_id);
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        let eval = {
-            let mut memos = self.memos.borrow_mut();
-            let memo = memos.memo_mut(memo_id);
-            memo.deps.clear();
-            memo.eval
-        };
-        let args = self.interner.borrow().interned(memo_id.args());
-        let _stack_len = self.active_queries.len();
+        let eval = self
+            .global
+            .memos
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memo(memo_id)
+            .eval;
+        let args = self
+            .global
+            .interner
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .interned(memo_id.args());
+        let mut commit = self.new_active_query(current_rev, memo_id);
         let out = {
-            let _active_query_guard = self.active_queries.push_query(memo_id);
-            let _eval_guard = self.metrics.eval_scope();
+            let _eval_guard = self.global.metrics.eval_scope();
             eval(self, args.as_ref())
         };
-        debug_assert_eq!(self.active_queries.len(), _stack_len);
-        let mut memos = self.memos.borrow_mut();
-        let memo = memos.memo_mut(memo_id);
-        memo.last_verified = current_rev;
+        let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
+        let memo = memos.memo(memo_id);
         if let Some(prev) = memo.value.as_ref()
             && (memo.eq)(out.as_ref(), prev.as_ref())
         {
             return;
         }
-        memo.last_changed = current_rev;
-        memo.value = Some(out);
+        commit.memo.change = Some(MemoChange::new(out));
     }
 
     fn dep_postdates_rev(
@@ -144,14 +241,113 @@ where
         dep: MemoId,
     ) -> bool {
         self.verify_memo(current_rev, dep);
-        self.memos.borrow().memo(dep).last_changed > memo_last_verified
+        self.global
+            .memos
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memo(dep)
+            .last_changed
+            > memo_last_verified
+    }
+
+    fn new_active_query(&self, current_rev: Revision, memo_id: MemoId) -> CommitQuery<'_, M> {
+        let mut active_queries = self.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        active_queries.push(ActiveQuery::default());
+        CommitQuery {
+            snapshot: self,
+            memo: CommitMemo {
+                db: &self.db,
+                current_rev,
+                memo_id,
+                change: None,
+            },
+        }
+    }
+
+    fn track_dep(&self, dep: MemoId) {
+        let mut active_queries = self.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        let caller = active_queries.last_mut();
+        if let Some(ActiveQuery { deps }) = caller {
+            deps.push(dep);
+        }
     }
 
     fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
     where
         Q: Query,
     {
-        self.memos.borrow().memo(memo_id).value::<Q::Out>().clone()
+        self.global
+            .memos
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memo(memo_id)
+            .value::<Q::Out>()
+            .clone()
+    }
+}
+
+impl<M> Drop for CommitQuery<'_, M>
+where
+    M: Metrics,
+{
+    fn drop(&mut self) {
+        let Self { snapshot, memo } = self;
+        let mut active_queries = snapshot.active_queries.borrow_mut();
+        let ActiveQueryStack(active_queries) = &mut *active_queries;
+        if let Some(memo_change) = memo.change.as_mut()
+            && let Some(ActiveQuery { deps }) = active_queries.pop()
+        {
+            memo_change.deps = deps;
+        }
+    }
+}
+
+impl MemoChange {
+    fn new(out: Box<dyn Any + Send + Sync>) -> Self {
+        Self {
+            deps: Vec::default(),
+            value: out,
+        }
+    }
+}
+
+impl<M> Drop for CommitMemo<'_, M>
+where
+    M: Metrics,
+{
+    fn drop(&mut self) {
+        let Self {
+            db,
+            current_rev,
+            memo_id,
+            change,
+        } = self;
+        let mut memos = db.global.memos.write().expect(INCONSISTENT_STATE);
+        let memo = memos.memo_mut(*memo_id);
+        memo.last_verified = *current_rev;
+        if let Some(MemoChange { deps, value }) = change.take() {
+            memo.deps = deps;
+            memo.last_changed = *current_rev;
+            memo.value = Some(value);
+        }
+    }
+}
+
+impl<M> Deref for Snapshot<M> {
+    type Target = Db<M>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+impl Drop for SnapshotSync {
+    fn drop(&mut self) {
+        let Self(sync) = self;
+        let (_, notifier) = Arc::as_ref(sync);
+        notifier.notify_all();
     }
 }
 
@@ -174,25 +370,4 @@ impl Default for GlobalRevision {
 
 impl Revision {
     const NEVER_VERIFIED: Self = Self(0);
-}
-
-impl ActiveQueryStack {
-    fn active_query(&self) -> Option<MemoId> {
-        self.ids.borrow().last().copied()
-    }
-
-    fn push_query(&self, id: MemoId) -> PopActiveQuery<'_> {
-        self.ids.borrow_mut().push(id);
-        PopActiveQuery { stack: self }
-    }
-
-    fn len(&self) -> usize {
-        self.ids.borrow().len()
-    }
-}
-
-impl Drop for PopActiveQuery<'_> {
-    fn drop(&mut self) {
-        self.stack.ids.borrow_mut().pop();
-    }
 }
