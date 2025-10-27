@@ -137,16 +137,16 @@ use salsita::query::Query;
 use std::thread;
 
 #[derive(serde::Serialize)]
-pub(crate) struct Report(Vec<BenchReport>);
+pub(crate) struct Benches(Vec<Bench>);
 
 #[derive(serde::Serialize)]
-pub(crate) struct BenchReport {
+pub(crate) struct Bench {
     name: String,
-    metrics: Vec<ScenarioMetrics>,
+    scenarios: Vec<Scenario>,
 }
 
 #[derive(serde::Serialize)]
-struct ScenarioMetrics {
+struct Scenario {
     name: String,
     counts: Counts,
     timings: Vec<Timings>,
@@ -866,7 +866,7 @@ type Hourglass9 = Sink9<
     FanOut<Inc1V9, Hub9>,
 >;
 
-impl Report {
+impl Benches {
     pub(crate) fn new<
         const WARMUP_COUNT: usize,
         const N: usize,
@@ -895,7 +895,7 @@ pub(crate) fn star10<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics =
         bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Star10>(
             |db| {
@@ -909,7 +909,7 @@ pub(crate) fn star10<
                 20 + 10 * toggle
             },
         );
-    BenchReport::new("star10", metrics)
+    Bench::new("star10", metrics)
 }
 
 pub(crate) fn star30<
@@ -917,7 +917,7 @@ pub(crate) fn star30<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics =
         bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Star30>(
             |db| {
@@ -967,7 +967,7 @@ pub(crate) fn star30<
                 60 + 30 * toggle
             },
         );
-    BenchReport::new("star30", metrics)
+    Bench::new("star30", metrics)
 }
 
 pub(crate) fn star100<
@@ -975,7 +975,7 @@ pub(crate) fn star100<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1105,7 +1105,7 @@ pub(crate) fn star100<
             200 + toggle * 100
         },
     );
-    BenchReport::new("star100", metrics)
+    Bench::new("star100", metrics)
 }
 
 pub(crate) fn chain5<
@@ -1113,7 +1113,7 @@ pub(crate) fn chain5<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics =
         bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Chain5>(
             |db| {
@@ -1126,7 +1126,7 @@ pub(crate) fn chain5<
                 5 + toggle
             },
         );
-    BenchReport::new("chain5", metrics)
+    Bench::new("chain5", metrics)
 }
 
 pub(crate) fn chain25<
@@ -1134,7 +1134,7 @@ pub(crate) fn chain25<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1152,7 +1152,7 @@ pub(crate) fn chain25<
             25 + toggle
         },
     );
-    BenchReport::new("chain25", metrics)
+    Bench::new("chain25", metrics)
 }
 
 pub(crate) fn chain100<
@@ -1160,7 +1160,7 @@ pub(crate) fn chain100<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1178,7 +1178,7 @@ pub(crate) fn chain100<
             100 + toggle
         },
     );
-    BenchReport::new("chain100", metrics)
+    Bench::new("chain100", metrics)
 }
 
 pub(crate) fn tree_k3d2<
@@ -1186,7 +1186,7 @@ pub(crate) fn tree_k3d2<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1205,7 +1205,7 @@ pub(crate) fn tree_k3d2<
             3 + 3 * toggle
         },
     );
-    BenchReport::new("tree_k3d2", metrics)
+    Bench::new("tree_k3d2", metrics)
 }
 
 pub(crate) fn tree_k3d3<
@@ -1213,7 +1213,7 @@ pub(crate) fn tree_k3d3<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1232,7 +1232,7 @@ pub(crate) fn tree_k3d3<
             18 + 9 * toggle
         },
     );
-    BenchReport::new("tree_k3d3", metrics)
+    Bench::new("tree_k3d3", metrics)
 }
 
 pub(crate) fn tree_k3d4<
@@ -1240,7 +1240,7 @@ pub(crate) fn tree_k3d4<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1292,7 +1292,7 @@ pub(crate) fn tree_k3d4<
             81 + 27 * toggle
         },
     );
-    BenchReport::new("tree_k3d4", metrics)
+    Bench::new("tree_k3d4", metrics)
 }
 
 pub(crate) fn hourglass3<
@@ -1300,7 +1300,7 @@ pub(crate) fn hourglass3<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1323,7 +1323,7 @@ pub(crate) fn hourglass3<
             24
         },
     );
-    BenchReport::new("hourglass3", metrics)
+    Bench::new("hourglass3", metrics)
 }
 
 pub(crate) fn hourglass6<
@@ -1331,7 +1331,7 @@ pub(crate) fn hourglass6<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1357,7 +1357,7 @@ pub(crate) fn hourglass6<
             84
         },
     );
-    BenchReport::new("hourglass6", metrics)
+    Bench::new("hourglass6", metrics)
 }
 
 pub(crate) fn hourglass9<
@@ -1365,7 +1365,7 @@ pub(crate) fn hourglass9<
     const N: usize,
     const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
->() -> BenchReport {
+>() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
@@ -1394,14 +1394,14 @@ pub(crate) fn hourglass9<
             180
         },
     );
-    BenchReport::new("hourglass9", metrics)
+    Bench::new("hourglass9", metrics)
 }
 
-impl BenchReport {
-    fn new(name: &'static str, metrics: Vec<ScenarioMetrics>) -> Self {
+impl Bench {
+    fn new(name: &'static str, metrics: Vec<Scenario>) -> Self {
         Self {
             name: name.to_owned(),
-            metrics,
+            scenarios: metrics,
         }
     }
 }
@@ -1415,7 +1415,7 @@ fn bench_graph<
 >(
     alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> (Sink::Args, Sink::Out),
     update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args, bool) -> Sink::Out,
-) -> Vec<ScenarioMetrics>
+) -> Vec<Scenario>
 where
     Sink: Query,
     Sink::Out: Copy + Eq + Debug,
@@ -1525,7 +1525,7 @@ fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     name: &'static str,
     init: impl Copy + Fn(&mut Db<PerfMetrics>) -> Inp,
     bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp),
-) -> ScenarioMetrics {
+) -> Scenario {
     let (_, counts) = bench_iter(init, bench);
     for _ in 0..WARMUP_COUNT {
         let (_, _) = bench_iter(init, bench);
@@ -1536,7 +1536,7 @@ fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     })
     .take(N)
     .collect();
-    return ScenarioMetrics {
+    return Scenario {
         name: name.to_owned(),
         counts,
         timings,
