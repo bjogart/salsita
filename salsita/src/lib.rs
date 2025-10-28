@@ -67,27 +67,35 @@ struct ActiveQuery {
     deps: Vec<MemoId>,
 }
 
-struct CommitQuery<'snap, M>
+#[must_use]
+struct QueryUpdate<'snap, M>
 where
     M: Metrics,
 {
     snapshot: &'snap Snapshot<M>,
-    memo: CommitMemo<'snap, M>,
+    commit: PendingCommit,
 }
 
-struct CommitMemo<'db, M>
+#[must_use]
+struct MemoUpdate<'memos, M>
 where
     M: Metrics,
 {
-    db: &'db Db<M>,
-    current_rev: Revision,
-    memo_id: MemoId,
-    change: Option<MemoChange>,
+    memos: &'memos mut Memos<M>,
+    commit: PendingCommit,
 }
 
-struct MemoChange {
-    deps: Vec<MemoId>,
+#[must_use]
+struct PendingCommit {
+    current_rev: Revision,
+    memo_id: MemoId,
+    change: Option<PendingChange>,
+}
+
+#[must_use]
+struct PendingChange {
     value: Box<dyn Any + Send + Sync>,
+    deps: Option<Vec<MemoId>>,
 }
 
 impl<M> Db<M>
@@ -219,7 +227,7 @@ where
             .read()
             .expect(INCONSISTENT_STATE)
             .interned(memo_id.args());
-        let mut commit = self.new_active_query(current_rev, memo_id);
+        let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = self.global.metrics.eval_scope();
             eval(self, args.as_ref())
@@ -231,7 +239,7 @@ where
         {
             return;
         }
-        commit.memo.change = Some(MemoChange::new(out));
+        query_update.commit.change = Some(PendingChange::new(out));
     }
 
     fn dep_postdates_rev(
@@ -250,19 +258,11 @@ where
             > memo_last_verified
     }
 
-    fn new_active_query(&self, current_rev: Revision, memo_id: MemoId) -> CommitQuery<'_, M> {
+    fn install_query(&self, current_rev: Revision, memo_id: MemoId) -> QueryUpdate<'_, M> {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
-        CommitQuery {
-            snapshot: self,
-            memo: CommitMemo {
-                db: &self.db,
-                current_rev,
-                memo_id,
-                change: None,
-            },
-        }
+        QueryUpdate::new(self, PendingCommit::new(current_rev, memo_id))
     }
 
     fn track_dep(&self, dep: MemoId) {
@@ -288,50 +288,96 @@ where
     }
 }
 
-impl<M> Drop for CommitQuery<'_, M>
+impl<'snap, M> QueryUpdate<'snap, M>
+where
+    M: Metrics,
+{
+    const fn new(snapshot: &'snap Snapshot<M>, commit: PendingCommit) -> Self {
+        Self { snapshot, commit }
+    }
+}
+
+impl<M> Drop for QueryUpdate<'_, M>
 where
     M: Metrics,
 {
     fn drop(&mut self) {
-        let Self { snapshot, memo } = self;
+        let Self { snapshot, commit } = self;
         let mut active_queries = snapshot.active_queries.borrow_mut();
+        let Ok(mut memos) = snapshot.db.global.memos.write() else {
+            return;
+        };
         let ActiveQueryStack(active_queries) = &mut *active_queries;
-        if let Some(memo_change) = memo.change.as_mut()
+        if let Some(change) = commit.change.as_mut()
             && let Some(ActiveQuery { deps }) = active_queries.pop()
         {
-            memo_change.deps = deps;
+            change.deps = Some(deps);
         }
+        let _memo_update = MemoUpdate::new(&mut memos, commit.take());
     }
 }
 
-impl MemoChange {
-    fn new(out: Box<dyn Any + Send + Sync>) -> Self {
-        Self {
-            deps: Vec::default(),
-            value: out,
-        }
+impl<'memos, M> MemoUpdate<'memos, M>
+where
+    M: Metrics,
+{
+    const fn new(memos: &'memos mut Memos<M>, commit: PendingCommit) -> Self {
+        Self { memos, commit }
     }
 }
 
-impl<M> Drop for CommitMemo<'_, M>
+impl<M> Drop for MemoUpdate<'_, M>
 where
     M: Metrics,
 {
     fn drop(&mut self) {
         let Self {
-            db,
+            memos,
+            commit:
+                PendingCommit {
+                    current_rev,
+                    memo_id,
+                    change,
+                },
+        } = self;
+        let memo = memos.memo_mut(*memo_id);
+        memo.last_verified = *current_rev;
+        if let Some(PendingChange { deps, value }) = change.take() {
+            memo.value = Some(value);
+            memo.last_changed = *current_rev;
+            if let Some(deps) = deps {
+                memo.deps = deps;
+            }
+        }
+    }
+}
+
+impl PendingCommit {
+    const fn new(current_rev: Revision, memo_id: MemoId) -> Self {
+        Self {
+            current_rev,
+            memo_id,
+            change: None,
+        }
+    }
+
+    const fn take(&mut self) -> Self {
+        let Self {
             current_rev,
             memo_id,
             change,
         } = self;
-        let mut memos = db.global.memos.write().expect(INCONSISTENT_STATE);
-        let memo = memos.memo_mut(*memo_id);
-        memo.last_verified = *current_rev;
-        if let Some(MemoChange { deps, value }) = change.take() {
-            memo.deps = deps;
-            memo.last_changed = *current_rev;
-            memo.value = Some(value);
+        Self {
+            change: change.take(),
+            current_rev: *current_rev,
+            memo_id: *memo_id,
         }
+    }
+}
+
+impl PendingChange {
+    fn new(value: Box<dyn Any + Send + Sync>) -> Self {
+        Self { value, deps: None }
     }
 }
 
