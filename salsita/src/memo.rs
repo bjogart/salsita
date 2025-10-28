@@ -29,6 +29,7 @@ pub(crate) struct MemoEntry<M> {
     pub(crate) eval:
         fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
     pub(crate) eq: fn(a: &(dyn Any + Send + Sync), b: &(dyn Any + Send + Sync)) -> bool,
+    pub(crate) cancelable: bool,
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
@@ -90,6 +91,7 @@ where
         return Self {
             eval: eval::<M, Q>,
             eq: eq::<Q::Out>,
+            cancelable: Q::canceled().is_some(),
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
             last_changed: Revision::NEVER_VERIFIED,
