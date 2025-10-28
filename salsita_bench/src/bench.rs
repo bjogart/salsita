@@ -870,22 +870,22 @@ impl Benches {
     pub(crate) fn new<
         const WARMUP_COUNT: usize,
         const N: usize,
-        const PARALLEL_SNAPSHOT_COUNT: usize,
         const PARALLEL_GENERATION_COUNT: usize,
+        const PARALLEL_SNAPSHOT_COUNT: usize,
     >() -> Self {
         Self(vec![
-            star10::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            star30::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            star100::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            chain5::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            chain25::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            chain100::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            tree_k3d2::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            tree_k3d3::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            tree_k3d4::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            hourglass3::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            hourglass6::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
-            hourglass9::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT>(),
+            star10::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            star30::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            star100::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            chain5::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            chain25::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            chain100::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            tree_k3d2::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            tree_k3d3::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            tree_k3d4::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            hourglass3::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            hourglass6::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
+            hourglass9::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT>(),
         ])
     }
 }
@@ -893,11 +893,11 @@ impl Benches {
 pub(crate) fn star10<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics =
-        bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Star10>(
+        bench_graph::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT, Star10>(
             |db| {
                 let inp = db.new_input::<Inp>(1);
                 let inputs = Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp);
@@ -915,11 +915,11 @@ pub(crate) fn star10<
 pub(crate) fn star30<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics =
-        bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Star30>(
+        bench_graph::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT, Star30>(
             |db| {
                 let inp = db.new_input::<Inp>(1);
                 let inputs = Tuple30(
@@ -973,14 +973,14 @@ pub(crate) fn star30<
 pub(crate) fn star100<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         Star100,
     >(
         |db| {
@@ -1111,11 +1111,11 @@ pub(crate) fn star100<
 pub(crate) fn chain5<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics =
-        bench_graph::<WARMUP_COUNT, N, PARALLEL_SNAPSHOT_COUNT, PARALLEL_GENERATION_COUNT, Chain5>(
+        bench_graph::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT, Chain5>(
             |db| {
                 let inputs = db.new_input::<Inp>(0);
                 (inputs, 5)
@@ -1132,14 +1132,14 @@ pub(crate) fn chain5<
 pub(crate) fn chain25<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         Chain25,
     >(
         |db| {
@@ -1158,14 +1158,14 @@ pub(crate) fn chain25<
 pub(crate) fn chain100<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         Chain100,
     >(
         |db| {
@@ -1184,14 +1184,14 @@ pub(crate) fn chain100<
 pub(crate) fn tree_k3d2<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         TreeK3D2,
     >(
         |db| {
@@ -1211,14 +1211,14 @@ pub(crate) fn tree_k3d2<
 pub(crate) fn tree_k3d3<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         TreeK3D3,
     >(
         |db| {
@@ -1238,14 +1238,14 @@ pub(crate) fn tree_k3d3<
 pub(crate) fn tree_k3d4<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         TreeK3D4,
     >(
         |db| {
@@ -1298,14 +1298,14 @@ pub(crate) fn tree_k3d4<
 pub(crate) fn hourglass3<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         Hourglass3,
     >(
         |db| {
@@ -1329,14 +1329,14 @@ pub(crate) fn hourglass3<
 pub(crate) fn hourglass6<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         Hourglass6,
     >(
         |db| {
@@ -1363,14 +1363,14 @@ pub(crate) fn hourglass6<
 pub(crate) fn hourglass9<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
 >() -> Bench {
     let metrics = bench_graph::<
         WARMUP_COUNT,
         N,
-        PARALLEL_SNAPSHOT_COUNT,
         PARALLEL_GENERATION_COUNT,
+        PARALLEL_SNAPSHOT_COUNT,
         Hourglass9,
     >(
         |db| {
@@ -1409,8 +1409,8 @@ impl Bench {
 fn bench_graph<
     const WARMUP_COUNT: usize,
     const N: usize,
-    const PARALLEL_SNAPSHOT_COUNT: usize,
     const PARALLEL_GENERATION_COUNT: usize,
+    const PARALLEL_SNAPSHOT_COUNT: usize,
     Sink,
 >(
     alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> (Sink::Args, Sink::Out),
@@ -1579,61 +1579,61 @@ mod tests {
 
     #[test]
     fn star10() {
-        black_box(bench::star10::<0, 1, 2, 2>());
+        black_box(bench::star10::<0, 1, 100, 10>());
     }
 
     #[test]
     fn star30() {
-        black_box(bench::star30::<0, 1, 2, 2>());
+        black_box(bench::star30::<0, 1, 100, 10>());
     }
 
     #[test]
     fn star100() {
-        black_box(bench::star100::<0, 1, 2, 2>());
+        black_box(bench::star100::<0, 1, 100, 10>());
     }
 
     #[test]
     fn chain5() {
-        black_box(bench::chain5::<0, 1, 2, 2>());
+        black_box(bench::chain5::<0, 1, 100, 10>());
     }
 
     #[test]
     fn chain25() {
-        black_box(bench::chain25::<0, 1, 2, 2>());
+        black_box(bench::chain25::<0, 1, 100, 10>());
     }
 
     #[test]
     fn chain100() {
-        black_box(bench::chain100::<0, 1, 2, 2>());
+        black_box(bench::chain100::<0, 1, 100, 10>());
     }
 
     #[test]
     fn tree_k3d2() {
-        black_box(bench::tree_k3d2::<0, 1, 2, 2>());
+        black_box(bench::tree_k3d2::<0, 1, 100, 10>());
     }
 
     #[test]
     fn tree_k3d3() {
-        black_box(bench::tree_k3d3::<0, 1, 2, 2>());
+        black_box(bench::tree_k3d3::<0, 1, 100, 10>());
     }
 
     #[test]
     fn tree_k3d4() {
-        black_box(bench::tree_k3d4::<0, 1, 2, 2>());
+        black_box(bench::tree_k3d4::<0, 1, 100, 10>());
     }
 
     #[test]
     fn hourglass3() {
-        black_box(bench::hourglass3::<0, 1, 2, 2>());
+        black_box(bench::hourglass3::<0, 1, 100, 10>());
     }
 
     #[test]
     fn hourglass6() {
-        black_box(bench::hourglass6::<0, 1, 2, 2>());
+        black_box(bench::hourglass6::<0, 1, 100, 10>());
     }
 
     #[test]
     fn hourglass9() {
-        black_box(bench::hourglass9::<0, 1, 2, 2>());
+        black_box(bench::hourglass9::<0, 1, 100, 10>());
     }
 }
