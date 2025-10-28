@@ -1491,8 +1491,7 @@ where
         },
         |db, inputs| {
             let mut toggle = false;
-            let mut handles =
-                Vec::with_capacity(PARALLEL_GENERATION_COUNT * PARALLEL_SNAPSHOT_COUNT);
+            let mut handles = Vec::with_capacity(PARALLEL_SNAPSHOT_COUNT);
             for generation in 0..PARALLEL_GENERATION_COUNT {
                 toggle = !toggle;
                 let exp_out = update_inputs(db, &inputs, toggle);
@@ -1511,9 +1510,9 @@ where
                             .expect("failed to spawn thread")
                     });
                 }
-            }
-            for handle in handles.drain(..) {
-                handle.join().expect("parallel evaluation failed");
+                for handle in handles.drain(..) {
+                    handle.join().expect("parallel evaluation failed");
+                }
             }
         },
     );
