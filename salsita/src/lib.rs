@@ -140,12 +140,11 @@ where
             }
         };
 
-        let rev = global.rev.bump();
+        let current_rev = global.rev.bump();
         let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
-        let memo = memos.memo_mut(id.memo_id());
-        memo.value = Some(Box::new(value));
-        memo.last_verified = rev;
-        memo.last_changed = rev;
+        let mut commit = PendingCommit::new(current_rev, id.memo_id());
+        commit.change = Some(PendingChange::new(Box::new(value)));
+        let _update = MemoUpdate::new(&mut *memos, commit);
     }
 
     #[must_use]
@@ -313,7 +312,7 @@ where
         {
             change.deps = Some(deps);
         }
-        let _memo_update = MemoUpdate::new(&mut memos, commit.take());
+        let _update = MemoUpdate::new(&mut memos, commit.take());
     }
 }
 
@@ -362,15 +361,10 @@ impl PendingCommit {
     }
 
     const fn take(&mut self) -> Self {
-        let Self {
-            current_rev,
-            memo_id,
-            change,
-        } = self;
         Self {
-            change: change.take(),
-            current_rev: *current_rev,
-            memo_id: *memo_id,
+            change: self.change.take(),
+            current_rev: self.current_rev,
+            memo_id: self.memo_id,
         }
     }
 }
