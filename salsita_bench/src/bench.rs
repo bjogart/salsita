@@ -899,14 +899,14 @@ pub(crate) fn star10<
     let metrics =
         bench_graph::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT, Star10>(
             |db| {
-                let inp = db.new_input::<Inp>(1);
+                let inp = db.new_input::<Inp>(Some(1));
                 let inputs = Tuple10(inp, inp, inp, inp, inp, inp, inp, inp, inp, inp);
-                (inputs, 20)
+                (inputs, Some(20))
             },
             |db, Tuple10(inp, _, _, _, _, _, _, _, _, _), toggle| {
                 let toggle = usize::from(toggle);
-                db.set_input(*inp, 1 + toggle);
-                20 + 10 * toggle
+                db.set_input(*inp, Some(1 + toggle));
+                Some(20 + 10 * toggle)
             },
         );
     Bench::new("star10", metrics)
@@ -921,12 +921,12 @@ pub(crate) fn star30<
     let metrics =
         bench_graph::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT, Star30>(
             |db| {
-                let inp = db.new_input::<Inp>(1);
+                let inp = db.new_input::<Inp>(Some(1));
                 let inputs = Tuple30(
                     inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                     inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 );
-                (inputs, 60)
+                (inputs, Some(60))
             },
             |db,
              Tuple30(
@@ -963,8 +963,8 @@ pub(crate) fn star30<
             ),
              toggle| {
                 let toggle = usize::from(toggle);
-                db.set_input(*inp, 1 + toggle);
-                60 + 30 * toggle
+                db.set_input(*inp, Some(1 + toggle));
+                Some(60 + 30 * toggle)
             },
         );
     Bench::new("star30", metrics)
@@ -984,7 +984,7 @@ pub(crate) fn star100<
         Star100,
     >(
         |db| {
-            let inp = db.new_input::<Inp>(1);
+            let inp = db.new_input::<Inp>(Some(1));
             let inputs = Tuple100(
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
@@ -994,7 +994,7 @@ pub(crate) fn star100<
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp,
             );
-            (inputs, 200)
+            (inputs, Some(200))
         },
         |db,
          Tuple100(
@@ -1101,8 +1101,8 @@ pub(crate) fn star100<
         ),
          toggle| {
             let toggle = usize::from(toggle);
-            db.set_input(*inp, 1 + toggle);
-            200 + toggle * 100
+            db.set_input(*inp, Some(1 + toggle));
+            Some(200 + toggle * 100)
         },
     );
     Bench::new("star100", metrics)
@@ -1117,13 +1117,13 @@ pub(crate) fn chain5<
     let metrics =
         bench_graph::<WARMUP_COUNT, N, PARALLEL_GENERATION_COUNT, PARALLEL_SNAPSHOT_COUNT, Chain5>(
             |db| {
-                let inputs = db.new_input::<Inp>(0);
-                (inputs, 5)
+                let inputs = db.new_input::<Inp>(Some(0));
+                (inputs, Some(5))
             },
             |db, inp, toggle| {
                 let toggle = usize::from(toggle);
-                db.set_input(*inp, toggle);
-                5 + toggle
+                db.set_input(*inp, Some(toggle));
+                Some(5 + toggle)
             },
         );
     Bench::new("chain5", metrics)
@@ -1143,13 +1143,13 @@ pub(crate) fn chain25<
         Chain25,
     >(
         |db| {
-            let inputs = db.new_input::<Inp>(0);
-            (inputs, 25)
+            let inputs = db.new_input::<Inp>(Some(0));
+            (inputs, Some(25))
         },
         |db, inp, toggle| {
             let toggle = usize::from(toggle);
-            db.set_input(*inp, toggle);
-            25 + toggle
+            db.set_input(*inp, Some(toggle));
+            Some(25 + toggle)
         },
     );
     Bench::new("chain25", metrics)
@@ -1169,13 +1169,13 @@ pub(crate) fn chain100<
         Chain100,
     >(
         |db| {
-            let inputs = db.new_input::<Inp>(0);
-            (inputs, 100)
+            let inputs = db.new_input::<Inp>(Some(0));
+            (inputs, Some(100))
         },
         |db, inp, toggle| {
             let toggle = usize::from(toggle);
-            db.set_input(*inp, toggle);
-            100 + toggle
+            db.set_input(*inp, Some(toggle));
+            Some(100 + toggle)
         },
     );
     Bench::new("chain100", metrics)
@@ -1195,14 +1195,14 @@ pub(crate) fn tree_k3d2<
         TreeK3D2,
     >(
         |db| {
-            let inp = db.new_input::<Inp>(0);
+            let inp = db.new_input::<Inp>(Some(0));
             let inputs = Tuple3(inp, inp, inp);
-            (inputs, 3)
+            (inputs, Some(3))
         },
         |db, Tuple3(inp, _, _), toggle| {
             let toggle = usize::from(toggle);
-            db.set_input(*inp, toggle);
-            3 + 3 * toggle
+            db.set_input(*inp, Some(toggle));
+            Some(3 + 3 * toggle)
         },
     );
     Bench::new("tree_k3d2", metrics)
@@ -1222,14 +1222,14 @@ pub(crate) fn tree_k3d3<
         TreeK3D3,
     >(
         |db| {
-            let inp = db.new_input::<Inp>(0);
+            let inp = db.new_input::<Inp>(Some(0));
             let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
-            (inputs, 18)
+            (inputs, Some(18))
         },
         |db, Tuple9(inp, _, _, _, _, _, _, _, _), toggle| {
             let toggle = usize::from(toggle);
-            db.set_input(*inp, toggle);
-            18 + 9 * toggle
+            db.set_input(*inp, Some(toggle));
+            Some(18 + 9 * toggle)
         },
     );
     Bench::new("tree_k3d3", metrics)
@@ -1249,12 +1249,12 @@ pub(crate) fn tree_k3d4<
         TreeK3D4,
     >(
         |db| {
-            let inp = db.new_input::<Inp>(0);
+            let inp = db.new_input::<Inp>(Some(0));
             let inputs = Tuple27(
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
                 inp, inp, inp, inp, inp, inp, inp, inp, inp, inp, inp,
             );
-            (inputs, 81)
+            (inputs, Some(81))
         },
         |db,
          Tuple27(
@@ -1288,8 +1288,8 @@ pub(crate) fn tree_k3d4<
         ),
          toggle| {
             let toggle = usize::from(toggle);
-            db.set_input(*inp, toggle);
-            81 + 27 * toggle
+            db.set_input(*inp, Some(toggle));
+            Some(81 + 27 * toggle)
         },
     );
     Bench::new("tree_k3d4", metrics)
@@ -1310,17 +1310,17 @@ pub(crate) fn hourglass3<
     >(
         |db| {
             let inp = Tuple3(
-                db.new_input::<Inp>(2),
-                db.new_input::<Inp2>(1),
-                db.new_input::<Inp3>(1),
+                db.new_input::<Inp>(Some(2)),
+                db.new_input::<Inp2>(Some(1)),
+                db.new_input::<Inp3>(Some(1)),
             );
             let inputs = Tuple3(inp, inp, inp);
-            (inputs, 24)
+            (inputs, Some(24))
         },
         |db, Tuple3(Tuple3(inp1, inp2, _), _, _), toggle| {
-            db.set_input(*inp1, 1 + usize::from(!toggle));
-            db.set_input(*inp2, 1 + usize::from(toggle));
-            24
+            db.set_input(*inp1, Some(1 + usize::from(!toggle)));
+            db.set_input(*inp2, Some(1 + usize::from(toggle)));
+            Some(24)
         },
     );
     Bench::new("hourglass3", metrics)
@@ -1341,20 +1341,20 @@ pub(crate) fn hourglass6<
     >(
         |db| {
             let inp = Tuple6(
-                db.new_input::<Inp>(2),
-                db.new_input::<Inp2>(1),
-                db.new_input::<Inp3>(1),
-                db.new_input::<Inp4>(1),
-                db.new_input::<Inp5>(1),
-                db.new_input::<Inp6>(1),
+                db.new_input::<Inp>(Some(2)),
+                db.new_input::<Inp2>(Some(1)),
+                db.new_input::<Inp3>(Some(1)),
+                db.new_input::<Inp4>(Some(1)),
+                db.new_input::<Inp5>(Some(1)),
+                db.new_input::<Inp6>(Some(1)),
             );
             let inputs = Tuple6(inp, inp, inp, inp, inp, inp);
-            (inputs, 84)
+            (inputs, Some(84))
         },
         |db, Tuple6(Tuple6(inp1, inp2, _, _, _, _), _, _, _, _, _), toggle| {
-            db.set_input(*inp1, 1 + usize::from(!toggle));
-            db.set_input(*inp2, 1 + usize::from(toggle));
-            84
+            db.set_input(*inp1, Some(1 + usize::from(!toggle)));
+            db.set_input(*inp2, Some(1 + usize::from(toggle)));
+            Some(84)
         },
     );
     Bench::new("hourglass6", metrics)
@@ -1375,23 +1375,23 @@ pub(crate) fn hourglass9<
     >(
         |db| {
             let inp = Tuple9(
-                db.new_input::<Inp>(2),
-                db.new_input::<Inp2>(1),
-                db.new_input::<Inp3>(1),
-                db.new_input::<Inp4>(1),
-                db.new_input::<Inp5>(1),
-                db.new_input::<Inp6>(1),
-                db.new_input::<Inp7>(1),
-                db.new_input::<Inp8>(1),
-                db.new_input::<Inp9>(1),
+                db.new_input::<Inp>(Some(2)),
+                db.new_input::<Inp2>(Some(1)),
+                db.new_input::<Inp3>(Some(1)),
+                db.new_input::<Inp4>(Some(1)),
+                db.new_input::<Inp5>(Some(1)),
+                db.new_input::<Inp6>(Some(1)),
+                db.new_input::<Inp7>(Some(1)),
+                db.new_input::<Inp8>(Some(1)),
+                db.new_input::<Inp9>(Some(1)),
             );
             let inputs = Tuple9(inp, inp, inp, inp, inp, inp, inp, inp, inp);
-            (inputs, 180)
+            (inputs, Some(180))
         },
         |db, Tuple9(Tuple9(inp1, inp2, _, _, _, _, _, _, _), _, _, _, _, _, _, _, _), toggle| {
-            db.set_input(*inp1, 1 + usize::from(!toggle));
-            db.set_input(*inp2, 1 + usize::from(toggle));
-            180
+            db.set_input(*inp1, Some(1 + usize::from(!toggle)));
+            db.set_input(*inp2, Some(1 + usize::from(toggle)));
+            Some(180)
         },
     );
     Bench::new("hourglass9", metrics)

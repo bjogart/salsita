@@ -6,7 +6,10 @@ use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
 use core::fmt::Debug;
-use std::sync::mpsc::channel;
+use std::sync::Arc;
+use std::sync::Condvar;
+use std::sync::Mutex;
+use std::sync::mpsc;
 use std::thread;
 
 #[test]
@@ -63,15 +66,15 @@ fn propagation_updates_transitive_dependents() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), 35, 1, 0);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), Some(35), 1, 0);
     db.set_input(price, 4);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), 23, 5, 3);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), Some(23), 5, 3);
 }
 
 #[test]
 fn modifications_are_blocked_until_snapshots_drop() {
     let mut db: Db<()> = Db::default();
-    let (sender, receiver) = channel::<Snapshot<()>>();
+    let (sender, receiver) = mpsc::channel::<Snapshot<()>>();
     let price = db.new_input::<BurritoPrice>(8);
     assert_eq!(db.snapshot().query::<BurritoPrice>(&price), 8);
     let handle = thread::spawn({
@@ -85,6 +88,47 @@ fn modifications_are_blocked_until_snapshots_drop() {
     });
     db.set_input(price, 4);
     sender.send(db.snapshot()).unwrap();
+    handle.join().unwrap();
+}
+
+#[test]
+fn modifications_trigger_query_cancellation() {
+    let mut db: Db<()> = Db::default();
+    let worker_ready = Arc::new((Mutex::new(false), Condvar::new()));
+    let price = db.new_input::<BurritoPrice>(8);
+    // Spawn a worker thread that holds a live snapshot. While this snapshot
+    // exists, calling `set_input()` in the main thread should block and trigger
+    // cancellation inside the worker thread.
+    let handle = thread::spawn({
+        let snapshot = db.snapshot();
+        let worker_ready = worker_ready.clone();
+        move || {
+            // Sanity check: before any cancellation, the query evaluates as
+            // expected.
+            assert_eq!(snapshot.query::<BurritoPriceWithShipping>(&price), Some(10));
+            // Notify the main thread that the worker is ready.
+            let (mutex, cvar) = &*worker_ready;
+            *mutex.lock().unwrap() = true;
+            cvar.notify_one();
+            // Wait for cancellation to be signalled, which is the signal that
+            // `set_input` is blocking.
+            while !snapshot.should_cancel() {
+                thread::yield_now();
+            }
+            // Calling the same query will now return a cancel sentinel.
+            assert_eq!(snapshot.query::<BurritoPriceWithShipping>(&price), None);
+        }
+    });
+    // Wait until the worker is ready.
+    let (mutex, cvar) = &*worker_ready;
+    let mut guard = mutex.lock().unwrap();
+    while !*guard {
+        guard = cvar.wait(guard).unwrap();
+    }
+    // With the worker snapshot still alive, this call will: set the global
+    // cancellation flag and block until the worker snapshot is dropped.
+    db.set_input(price, 4);
+    // Join and unwrap the worker thread to propagate failed assertions.
     handle.join().unwrap();
 }
 
@@ -132,28 +176,28 @@ fn assert_queries(
     assert_query_delta::<BurritoPriceWithShipping>(
         db,
         &price,
-        price_w_shipping.0,
+        Some(price_w_shipping.0),
         price_w_shipping.1,
         price_w_shipping.2,
     );
     assert_query_delta::<TotalPrice>(
         db,
         &(price, count),
-        total_price.0,
+        Some(total_price.0),
         total_price.1,
         total_price.2,
     );
     assert_query_delta::<PriceWithVat>(
         db,
         &(price, count),
-        price_with_vat.0,
+        Some(price_with_vat.0),
         price_with_vat.1,
         price_with_vat.2,
     );
     assert_query_delta::<SalsaInOrder>(
         db,
         &(burrito_salsa, count),
-        salsa_in_order.0,
+        Some(salsa_in_order.0),
         salsa_in_order.1,
         salsa_in_order.2,
     );
@@ -190,13 +234,17 @@ impl Input for BurritoPrice {
 struct BurritoPriceWithShipping;
 impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
-    type Out = usize;
+    type Out = Option<usize>;
 
     fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
-        snapshot.query::<BurritoPrice>(args) + 2
+        Some(snapshot.query::<BurritoPrice>(args) + 2)
+    }
+
+    fn canceled() -> Option<Self::Out> {
+        Some(None)
     }
 }
 
@@ -208,27 +256,38 @@ impl Input for BurritoCount {
 struct TotalPrice;
 impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
-    type Out = usize;
+    type Out = Option<usize>;
 
     fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
         let (price, count) = args;
-        snapshot.query::<BurritoPriceWithShipping>(price) * snapshot.query::<BurritoCount>(count)
+        Some(
+            snapshot.query::<BurritoPriceWithShipping>(price)?
+                * snapshot.query::<BurritoCount>(count),
+        )
+    }
+
+    fn canceled() -> Option<Self::Out> {
+        Some(None)
     }
 }
 
 struct PriceWithVat;
 impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
-    type Out = usize;
+    type Out = Option<usize>;
 
     fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
-        snapshot.query::<TotalPrice>(args) + 5
+        Some(snapshot.query::<TotalPrice>(args)? + 5)
+    }
+
+    fn canceled() -> Option<Self::Out> {
+        Some(None)
     }
 }
 
@@ -240,13 +299,20 @@ impl Input for SalsaPerBurrito {
 struct SalsaInOrder;
 impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
-    type Out = usize;
+    type Out = Option<usize>;
 
     fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics,
     {
         let (burrito_salsa, count) = args;
-        snapshot.query::<BurritoCount>(count) * snapshot.query::<SalsaPerBurrito>(burrito_salsa)
+        Some(
+            snapshot.query::<BurritoCount>(count)
+                * snapshot.query::<SalsaPerBurrito>(burrito_salsa),
+        )
+    }
+
+    fn canceled() -> Option<Self::Out> {
+        Some(None)
     }
 }

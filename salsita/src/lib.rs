@@ -11,6 +11,7 @@ use alloc::sync::Arc;
 use core::any::Any;
 use core::cell::RefCell;
 use core::ops::Deref;
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::Condvar;
@@ -48,6 +49,7 @@ struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
 #[derive(Debug, Default)]
 struct GlobalState<M> {
     rev: GlobalRevision,
+    should_cancel: AtomicBool,
     interner: RwLock<Interner>,
     memos: RwLock<Memos<M>>,
     metrics: M,
@@ -128,6 +130,7 @@ where
     where
         I: Input,
     {
+        self.global.should_cancel.store(true, Ordering::Release);
         let global = {
             let SnapshotSync(sync) = &self.sync;
             let (waiter, notifier) = Arc::as_ref(sync);
@@ -139,6 +142,7 @@ where
                 guard = notifier.wait(guard).expect(INCONSISTENT_STATE);
             }
         };
+        global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = global.rev.bump();
         let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
@@ -156,6 +160,11 @@ where
             },
             active_queries: RefCell::default(),
         }
+    }
+
+    #[must_use]
+    pub fn should_cancel(&self) -> bool {
+        self.global.should_cancel.load(Ordering::Relaxed)
     }
 }
 
@@ -181,6 +190,11 @@ where
             .expect(INCONSISTENT_STATE)
             .intern::<Q>(args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
+        if self.should_cancel()
+            && let Some(value) = Q::canceled()
+        {
+            return value;
+        }
         self.memoized_value::<Q>(memo_id)
     }
 
@@ -190,7 +204,7 @@ where
             let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
             let memo = memos.memo(memo_id);
             let last_verified = memo.last_verified;
-            if last_verified == current_rev {
+            if last_verified == current_rev || self.should_cancel() && memo.cancelable {
                 return;
             }
             let deps = memo.deps.clone();

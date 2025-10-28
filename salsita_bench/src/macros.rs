@@ -9,7 +9,7 @@ use salsita::query::Query;
 
 pub(crate) trait Op: 'static {
     type Args: Clone + Eq + Hash + Send;
-    type Out: Clone + Eq + Send + Sync;
+    type Out: Clone + Eq + Default + Send + Sync;
     fn op(args: Self::Args) -> Self::Out;
 }
 
@@ -33,20 +33,24 @@ macro_rules! impl_dep {
                 $(let $dep = snapshot.query::<$dep>($dep);)*
                 O::op($input($($dep),*))
             }
+
+            fn canceled() -> Option<Self::Out> {
+                Some(Self::Out::default())
+            }
         }
     };
 }
 
 macro_rules! impl_add {
-    ($name:ident { input: $input:ident, $($param:ident: $ty:ident),*$(,)? }) => {
+    ($name:ident { input: $input:ident, $($param:ident: $ty:ty),*$(,)? }) => {
         pub(crate) struct $name;
         impl Op for $name {
             type Args = $input<$($ty),*>;
-            type Out = usize;
+            type Out = Option<usize>;
 
             fn op(args: Self::Args) -> Self::Out {
                 let $input($($param),*) = args;
-                0 $(+ $param)*
+                Some(0 $(+ $param?)*)
             }
         }
     };
@@ -56,11 +60,11 @@ macro_rules! impl_inc {
     ($name:ident$(, $($($tt:tt)+)?)?) => {
         pub(crate) struct $name;
         impl Op for $name {
-            type Args = usize;
-            type Out = usize;
+            type Args = Option<usize>;
+            type Out = Option<usize>;
 
             fn op(args: Self::Args) -> Self::Out {
-                args + 1
+                Some(args? + 1)
             }
         }
         $($(impl_inc!($($tt)+);)?)?
@@ -79,7 +83,7 @@ macro_rules! impl_inp {
         pub(crate) struct $name;
 
         impl Input for $name {
-            type Value = usize;
+            type Value = Option<usize>;
         }
         $($(impl_inp!($($tt)+);)?)?
     };
@@ -101,6 +105,10 @@ where
     {
         let d = snapshot.query::<D>(args);
         O::op(d)
+    }
+
+    fn canceled() -> Option<Self::Out> {
+        Some(Self::Out::default())
     }
 }
 
@@ -154,215 +162,215 @@ impl_dep!(Dep100 {
 
 impl_add!(Add3 {
     input: Tuple3,
-    a1: usize,
-    a2: usize,
-    a3: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
 });
 
 impl_add!(Add6 {
     input: Tuple6,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
+    a4: Option<usize>,
+    a5: Option<usize>,
+    a6: Option<usize>,
 });
 
 impl_add!(Add9 {
     input: Tuple9,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
-    a8: usize,
-    a9: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
+    a4: Option<usize>,
+    a5: Option<usize>,
+    a6: Option<usize>,
+    a7: Option<usize>,
+    a8: Option<usize>,
+    a9: Option<usize>,
 });
 
 impl_add!(Add10 {
     input: Tuple10,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
-    a8: usize,
-    a9: usize,
-    a10: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
+    a4: Option<usize>,
+    a5: Option<usize>,
+    a6: Option<usize>,
+    a7: Option<usize>,
+    a8: Option<usize>,
+    a9: Option<usize>,
+    a10: Option<usize>,
 });
 
 impl_add!(Add27 {
     input: Tuple27,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
-    a8: usize,
-    a9: usize,
-    a10: usize,
-    a11: usize,
-    a12: usize,
-    a13: usize,
-    a14: usize,
-    a15: usize,
-    a16: usize,
-    a17: usize,
-    a18: usize,
-    a19: usize,
-    a20: usize,
-    a21: usize,
-    a22: usize,
-    a23: usize,
-    a24: usize,
-    a25: usize,
-    a26: usize,
-    a27: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
+    a4: Option<usize>,
+    a5: Option<usize>,
+    a6: Option<usize>,
+    a7: Option<usize>,
+    a8: Option<usize>,
+    a9: Option<usize>,
+    a10: Option<usize>,
+    a11: Option<usize>,
+    a12: Option<usize>,
+    a13: Option<usize>,
+    a14: Option<usize>,
+    a15: Option<usize>,
+    a16: Option<usize>,
+    a17: Option<usize>,
+    a18: Option<usize>,
+    a19: Option<usize>,
+    a20: Option<usize>,
+    a21: Option<usize>,
+    a22: Option<usize>,
+    a23: Option<usize>,
+    a24: Option<usize>,
+    a25: Option<usize>,
+    a26: Option<usize>,
+    a27: Option<usize>,
 });
 
 impl_add!(Add30 {
     input: Tuple30,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
-    a8: usize,
-    a9: usize,
-    a10: usize,
-    a11: usize,
-    a12: usize,
-    a13: usize,
-    a14: usize,
-    a15: usize,
-    a16: usize,
-    a17: usize,
-    a18: usize,
-    a19: usize,
-    a20: usize,
-    a21: usize,
-    a22: usize,
-    a23: usize,
-    a24: usize,
-    a25: usize,
-    a26: usize,
-    a27: usize,
-    a28: usize,
-    a29: usize,
-    a30: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
+    a4: Option<usize>,
+    a5: Option<usize>,
+    a6: Option<usize>,
+    a7: Option<usize>,
+    a8: Option<usize>,
+    a9: Option<usize>,
+    a10: Option<usize>,
+    a11: Option<usize>,
+    a12: Option<usize>,
+    a13: Option<usize>,
+    a14: Option<usize>,
+    a15: Option<usize>,
+    a16: Option<usize>,
+    a17: Option<usize>,
+    a18: Option<usize>,
+    a19: Option<usize>,
+    a20: Option<usize>,
+    a21: Option<usize>,
+    a22: Option<usize>,
+    a23: Option<usize>,
+    a24: Option<usize>,
+    a25: Option<usize>,
+    a26: Option<usize>,
+    a27: Option<usize>,
+    a28: Option<usize>,
+    a29: Option<usize>,
+    a30: Option<usize>,
 });
 
 impl_add!(Add100 {
     input: Tuple100,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
-    a8: usize,
-    a9: usize,
-    a10: usize,
-    a11: usize,
-    a12: usize,
-    a13: usize,
-    a14: usize,
-    a15: usize,
-    a16: usize,
-    a17: usize,
-    a18: usize,
-    a19: usize,
-    a20: usize,
-    a21: usize,
-    a22: usize,
-    a23: usize,
-    a24: usize,
-    a25: usize,
-    a26: usize,
-    a27: usize,
-    a28: usize,
-    a29: usize,
-    a30: usize,
-    a31: usize,
-    a32: usize,
-    a33: usize,
-    a34: usize,
-    a35: usize,
-    a36: usize,
-    a37: usize,
-    a38: usize,
-    a39: usize,
-    a40: usize,
-    a41: usize,
-    a42: usize,
-    a43: usize,
-    a44: usize,
-    a45: usize,
-    a46: usize,
-    a47: usize,
-    a48: usize,
-    a49: usize,
-    a50: usize,
-    a51: usize,
-    a52: usize,
-    a53: usize,
-    a54: usize,
-    a55: usize,
-    a56: usize,
-    a57: usize,
-    a58: usize,
-    a59: usize,
-    a60: usize,
-    a61: usize,
-    a62: usize,
-    a63: usize,
-    a64: usize,
-    a65: usize,
-    a66: usize,
-    a67: usize,
-    a68: usize,
-    a69: usize,
-    a70: usize,
-    a71: usize,
-    a72: usize,
-    a73: usize,
-    a74: usize,
-    a75: usize,
-    a76: usize,
-    a77: usize,
-    a78: usize,
-    a79: usize,
-    a80: usize,
-    a81: usize,
-    a82: usize,
-    a83: usize,
-    a84: usize,
-    a85: usize,
-    a86: usize,
-    a87: usize,
-    a88: usize,
-    a89: usize,
-    a90: usize,
-    a91: usize,
-    a92: usize,
-    a93: usize,
-    a94: usize,
-    a95: usize,
-    a96: usize,
-    a97: usize,
-    a98: usize,
-    a99: usize,
-    a100: usize,
+    a1: Option<usize>,
+    a2: Option<usize>,
+    a3: Option<usize>,
+    a4: Option<usize>,
+    a5: Option<usize>,
+    a6: Option<usize>,
+    a7: Option<usize>,
+    a8: Option<usize>,
+    a9: Option<usize>,
+    a10: Option<usize>,
+    a11: Option<usize>,
+    a12: Option<usize>,
+    a13: Option<usize>,
+    a14: Option<usize>,
+    a15: Option<usize>,
+    a16: Option<usize>,
+    a17: Option<usize>,
+    a18: Option<usize>,
+    a19: Option<usize>,
+    a20: Option<usize>,
+    a21: Option<usize>,
+    a22: Option<usize>,
+    a23: Option<usize>,
+    a24: Option<usize>,
+    a25: Option<usize>,
+    a26: Option<usize>,
+    a27: Option<usize>,
+    a28: Option<usize>,
+    a29: Option<usize>,
+    a30: Option<usize>,
+    a31: Option<usize>,
+    a32: Option<usize>,
+    a33: Option<usize>,
+    a34: Option<usize>,
+    a35: Option<usize>,
+    a36: Option<usize>,
+    a37: Option<usize>,
+    a38: Option<usize>,
+    a39: Option<usize>,
+    a40: Option<usize>,
+    a41: Option<usize>,
+    a42: Option<usize>,
+    a43: Option<usize>,
+    a44: Option<usize>,
+    a45: Option<usize>,
+    a46: Option<usize>,
+    a47: Option<usize>,
+    a48: Option<usize>,
+    a49: Option<usize>,
+    a50: Option<usize>,
+    a51: Option<usize>,
+    a52: Option<usize>,
+    a53: Option<usize>,
+    a54: Option<usize>,
+    a55: Option<usize>,
+    a56: Option<usize>,
+    a57: Option<usize>,
+    a58: Option<usize>,
+    a59: Option<usize>,
+    a60: Option<usize>,
+    a61: Option<usize>,
+    a62: Option<usize>,
+    a63: Option<usize>,
+    a64: Option<usize>,
+    a65: Option<usize>,
+    a66: Option<usize>,
+    a67: Option<usize>,
+    a68: Option<usize>,
+    a69: Option<usize>,
+    a70: Option<usize>,
+    a71: Option<usize>,
+    a72: Option<usize>,
+    a73: Option<usize>,
+    a74: Option<usize>,
+    a75: Option<usize>,
+    a76: Option<usize>,
+    a77: Option<usize>,
+    a78: Option<usize>,
+    a79: Option<usize>,
+    a80: Option<usize>,
+    a81: Option<usize>,
+    a82: Option<usize>,
+    a83: Option<usize>,
+    a84: Option<usize>,
+    a85: Option<usize>,
+    a86: Option<usize>,
+    a87: Option<usize>,
+    a88: Option<usize>,
+    a89: Option<usize>,
+    a90: Option<usize>,
+    a91: Option<usize>,
+    a92: Option<usize>,
+    a93: Option<usize>,
+    a94: Option<usize>,
+    a95: Option<usize>,
+    a96: Option<usize>,
+    a97: Option<usize>,
+    a98: Option<usize>,
+    a99: Option<usize>,
+    a100: Option<usize>,
 });
 
 impl_inc![
