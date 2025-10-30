@@ -31,7 +31,7 @@ macro_rules! impl_dep {
             {
                 let $input($($dep,)*) = args;
                 $(let $dep = snapshot.query::<$dep>($dep);)*
-                O::op($input($($dep),*))
+                O::op($input($($dep.as_ref().clone()),*))
             }
 
             fn canceled() -> Option<Self::Out> {
@@ -103,7 +103,7 @@ where
     where
         M: Metrics,
     {
-        let d = snapshot.query::<D>(args);
+        let d = snapshot.query::<D>(args).as_ref().clone();
         O::op(d)
     }
 

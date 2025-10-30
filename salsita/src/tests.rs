@@ -66,9 +66,9 @@ fn propagation_updates_transitive_dependents() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), Some(35), 1, 0);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), &Some(35), 1, 0);
     db.set_input(price, &4);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), Some(23), 5, 3);
+    assert_query_delta::<PriceWithVat>(&db, &(price, count), &Some(23), 5, 3);
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn modifications_are_blocked_until_snapshots_drop() {
     let (sender, receiver) = mpsc::channel::<Snapshot<()>>();
     let price = db.new_input::<BurritoPrice>(&8);
     // Sanity check: on the main thread we observe the value we just created.
-    assert_eq!(db.snapshot().query::<BurritoPrice>(&price), 8);
+    assert_eq!(*db.snapshot().query::<BurritoPrice>(&price), 8);
     let handle = thread::spawn({
         // Create one snapshot, which moves to the other thread, where it will
         // remain live until we drop it.
@@ -87,13 +87,13 @@ fn modifications_are_blocked_until_snapshots_drop() {
                 let snapshot = snapshot;
                 // While this snapshot is live, `set_input` blocks &and will not
                 // modify the input.
-                assert_eq!(snapshot.query::<BurritoPrice>(&price), 8);
+                assert_eq!(*snapshot.query::<BurritoPrice>(&price), 8);
                 // Snapshot is dropped here; meaning that `set_input` is &free to
                 // modify its input.
             }
             let snapshot = receiver.recv().unwrap();
             // The new snapshot sees the updated input.
-            assert_eq!(snapshot.query::<BurritoPrice>(&price), 4);
+            assert_eq!(*snapshot.query::<BurritoPrice>(&price), 4);
         }
     });
     db.set_input(price, &4);
@@ -115,7 +115,10 @@ fn modifications_trigger_query_cancellation() {
         move || {
             // Sanity check: before any cancellation, the query evaluates as
             // expected.
-            assert_eq!(snapshot.query::<BurritoPriceWithShipping>(&price), Some(10));
+            assert_eq!(
+                *snapshot.query::<BurritoPriceWithShipping>(&price),
+                Some(10)
+            );
             // Notify the main thread that the worker is ready.
             let (mutex, cvar) = &*worker_ready;
             *mutex.lock().unwrap() = true;
@@ -126,7 +129,7 @@ fn modifications_trigger_query_cancellation() {
                 thread::yield_now();
             }
             // Calling the same query will now return a cancel sentinel.
-            assert_eq!(snapshot.query::<BurritoPriceWithShipping>(&price), None);
+            assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), None);
         }
     });
     // Wait until the worker is ready.
@@ -186,28 +189,28 @@ fn assert_queries(
     assert_query_delta::<BurritoPriceWithShipping>(
         db,
         &price,
-        Some(price_w_shipping.0),
+        &Some(price_w_shipping.0),
         price_w_shipping.1,
         price_w_shipping.2,
     );
     assert_query_delta::<TotalPrice>(
         db,
         &(price, count),
-        Some(total_price.0),
+        &Some(total_price.0),
         total_price.1,
         total_price.2,
     );
     assert_query_delta::<PriceWithVat>(
         db,
         &(price, count),
-        Some(price_with_vat.0),
+        &Some(price_with_vat.0),
         price_with_vat.1,
         price_with_vat.2,
     );
     assert_query_delta::<SalsaInOrder>(
         db,
         &(burrito_salsa, count),
-        Some(salsa_in_order.0),
+        &Some(salsa_in_order.0),
         salsa_in_order.1,
         salsa_in_order.2,
     );
@@ -216,7 +219,7 @@ fn assert_queries(
 fn assert_query_delta<Q>(
     db: &Db<PerfMetrics>,
     args: &Q::Args,
-    exp_out: Q::Out,
+    exp_out: &Q::Out,
     dq: usize,
     de: usize,
 ) where
@@ -226,7 +229,7 @@ fn assert_query_delta<Q>(
     let snapshot = db.snapshot();
     let (q_before, e_before) = metrics_snapshot(&snapshot);
     let out = snapshot.query::<Q>(args);
-    assert_eq!(out, exp_out);
+    assert_eq!(out.as_ref(), exp_out);
     let (q_after, e_after) = metrics_snapshot(&snapshot);
     assert_eq!((q_after - q_before, e_after - e_before), (dq, de));
 }
@@ -250,7 +253,7 @@ impl Query for BurritoPriceWithShipping {
     where
         M: Metrics,
     {
-        Some(snapshot.query::<BurritoPrice>(args) + 2)
+        Some(*snapshot.query::<BurritoPrice>(args) + 2)
     }
 
     fn canceled() -> Option<Self::Out> {
@@ -274,8 +277,8 @@ impl Query for TotalPrice {
     {
         let (price, count) = args;
         Some(
-            snapshot.query::<BurritoPriceWithShipping>(price)?
-                * snapshot.query::<BurritoCount>(count),
+            (*snapshot.query::<BurritoPriceWithShipping>(price))?
+                * *snapshot.query::<BurritoCount>(count),
         )
     }
 
@@ -293,7 +296,7 @@ impl Query for PriceWithVat {
     where
         M: Metrics,
     {
-        Some(snapshot.query::<TotalPrice>(args)? + 5)
+        Some((*snapshot.query::<TotalPrice>(args))? + 5)
     }
 
     fn canceled() -> Option<Self::Out> {
@@ -317,8 +320,8 @@ impl Query for SalsaInOrder {
     {
         let (burrito_salsa, count) = args;
         Some(
-            snapshot.query::<BurritoCount>(count)
-                * snapshot.query::<SalsaPerBurrito>(burrito_salsa),
+            *snapshot.query::<BurritoCount>(count)
+                * *snapshot.query::<SalsaPerBurrito>(burrito_salsa),
         )
     }
 

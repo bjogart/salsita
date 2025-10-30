@@ -1432,7 +1432,7 @@ where
         |db, ()| {
             let (inputs, exp_out) = alloc_inputs(db);
             let out = db.snapshot().query::<Sink>(&inputs);
-            assert_eq!(out, exp_out);
+            assert_eq!(*out, exp_out);
         },
     );
 
@@ -1451,7 +1451,7 @@ where
         },
         |db, (inputs, exp_out)| {
             let out = db.snapshot().query::<Sink>(&inputs);
-            assert_eq!(out, exp_out);
+            assert_eq!(*out, exp_out);
         },
     );
 
@@ -1466,13 +1466,13 @@ where
         |db| {
             let (inputs, exp_out) = alloc_inputs(db);
             let out = db.snapshot().query::<Sink>(&inputs);
-            assert_eq!(out, exp_out);
+            assert_eq!(*out, exp_out);
             inputs
         },
         |db, inputs| {
             let exp_out = update_inputs(db, &inputs, true);
             let out = db.snapshot().query::<Sink>(&inputs);
-            assert_eq!(out, exp_out);
+            assert_eq!(*out, exp_out);
         },
     );
 
@@ -1486,7 +1486,7 @@ where
         |db| {
             let (inputs, exp_out) = alloc_inputs(db);
             let out = db.snapshot().query::<Sink>(&inputs);
-            assert_eq!(out, exp_out);
+            assert_eq!(*out, exp_out);
             inputs
         },
         |db, inputs| {
@@ -1504,7 +1504,7 @@ where
                                 let snapshot = db.snapshot();
                                 move || {
                                     let out = snapshot.query::<Sink>(&inputs);
-                                    assert_eq!(out, exp_out);
+                                    assert_eq!(*out, exp_out);
                                 }
                             })
                             .expect("failed to spawn thread")
