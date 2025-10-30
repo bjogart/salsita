@@ -31,11 +31,11 @@ pub(crate) struct MemoEntry<M> {
         fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
     pub(crate) intern_output:
         fn(interner: &mut Interner, value: &(dyn Any + Send + Sync)) -> InternId,
-    pub(crate) cancelable: bool,
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
     pub(crate) value_id: Option<InternId>,
+    pub(crate) cancel_value_id: Option<InternId>,
 }
 
 impl<M> Memos<M>
@@ -53,7 +53,7 @@ where
     {
         let query = TypeId::of::<I>();
         let memo_id = MemoId { query, args_id };
-        let mut entry = MemoEntry::new::<I>();
+        let mut entry = MemoEntry::new::<I>(None);
         entry.value_id = Some(value_id);
         entry.last_verified = rev;
         entry.last_changed = rev;
@@ -61,7 +61,11 @@ where
         memo_id
     }
 
-    pub(crate) fn intern<Q>(&mut self, args_id: InternId) -> MemoId
+    pub(crate) fn intern<Q>(
+        &mut self,
+        args_id: InternId,
+        make_cancel_value_id: impl FnOnce() -> Option<InternId>,
+    ) -> MemoId
     where
         Q: Query,
     {
@@ -69,7 +73,7 @@ where
         let memo_id = MemoId { query, args_id };
         self.memos
             .entry(memo_id)
-            .or_insert_with(MemoEntry::new::<Q>);
+            .or_insert_with(|| MemoEntry::new::<Q>(make_cancel_value_id()));
         memo_id
     }
 
@@ -86,18 +90,18 @@ impl<M> MemoEntry<M>
 where
     M: Metrics,
 {
-    fn new<Q>() -> Self
+    fn new<Q>(cancel_value_id: Option<InternId>) -> Self
     where
         Q: Query,
     {
         return Self {
             eval: eval::<M, Q>,
             intern_output: intern_output::<Q::Out>,
-            cancelable: Q::canceled().is_some(),
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
             last_changed: Revision::NEVER_VERIFIED,
             value_id: None,
+            cancel_value_id,
         };
 
         fn eval<M, Q>(

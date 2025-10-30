@@ -196,14 +196,33 @@ where
             .memos
             .write()
             .expect(INCONSISTENT_STATE)
-            .intern::<Q>(args_id);
+            .intern::<Q>(args_id, || self.make_cancel_value_id::<Q>());
         self.verify_memo(self.global.rev.get(), memo_id);
         if self.should_cancel()
-            && let Some(value) = Q::canceled()
+            && let Some(cancel_value_id) = self
+                .global
+                .memos
+                .read()
+                .expect(INCONSISTENT_STATE)
+                .memo(memo_id)
+                .cancel_value_id
         {
-            return value;
+            return self.interned_output::<Q>(cancel_value_id);
         }
         self.memoized_value::<Q>(memo_id)
+    }
+
+    fn make_cancel_value_id<Q>(&self) -> Option<InternId>
+    where
+        Q: Query,
+    {
+        Q::canceled().map(|cancel_value| {
+            self.global
+                .interner
+                .write()
+                .expect(INCONSISTENT_STATE)
+                .intern(&cancel_value)
+        })
     }
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
@@ -212,7 +231,9 @@ where
             let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
             let memo = memos.memo(memo_id);
             let last_verified = memo.last_verified;
-            if last_verified == current_rev || self.should_cancel() && memo.cancelable {
+            if last_verified == current_rev
+                || self.should_cancel() && memo.cancel_value_id.is_some()
+            {
                 return;
             }
             (last_verified, memo.deps.clone())
@@ -305,6 +326,13 @@ where
             .memo(memo_id)
             .value_id
             .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
+        self.interned_output::<Q>(value_id)
+    }
+
+    fn interned_output<Q>(&self, value_id: InternId) -> Q::Out
+    where
+        Q: Query,
+    {
         let interner = self.global.interner.read().expect(INCONSISTENT_STATE);
         let interned = interner.interned(value_id);
         let Some(out) = interned.as_ref().downcast_ref::<Q::Out>() else {
