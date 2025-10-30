@@ -180,7 +180,7 @@ impl<M> Snapshot<M>
 where
     M: Metrics,
 {
-    pub fn query<Q>(&self, args: &Q::Args) -> Q::Out
+    pub fn query<Q>(&self, args: &Q::Args) -> Arc<Q::Out>
     where
         Q: Query,
     {
@@ -314,31 +314,36 @@ where
         }
     }
 
-    fn memoized_value<Q>(&self, memo_id: MemoId) -> Q::Out
+    fn memoized_value<Q>(&self, memo_id: MemoId) -> Arc<Q::Out>
     where
         Q: Query,
     {
-        let value_id = self
-            .global
-            .memos
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .memo(memo_id)
-            .value_id
-            .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
-        self.interned_output::<Q>(value_id)
+        self.interned_output::<Q>(
+            self.global
+                .memos
+                .read()
+                .expect(INCONSISTENT_STATE)
+                .memo(memo_id)
+                .value_id
+                .expect("bug: memo entry has no stored value (value not yet computed or memoized)"),
+        )
     }
 
-    fn interned_output<Q>(&self, value_id: InternId) -> Q::Out
+    fn interned_output<Q>(&self, value_id: InternId) -> Arc<Q::Out>
     where
         Q: Query,
     {
-        let interner = self.global.interner.read().expect(INCONSISTENT_STATE);
-        let interned = interner.interned(value_id);
-        let Some(out) = interned.as_ref().downcast_ref::<Q::Out>() else {
-            panic_expected_different_type::<&Q::Out>()
+        let Ok(out) = self
+            .global
+            .interner
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .interned(value_id)
+            .downcast::<Q::Out>()
+        else {
+            panic_expected_different_type::<Q::Out>()
         };
-        out.clone()
+        out
     }
 }
 
