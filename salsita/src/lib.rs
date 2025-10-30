@@ -10,6 +10,7 @@ use crate::query::Query;
 use alloc::sync::Arc;
 use core::any::Any;
 use core::cell::RefCell;
+use core::num::NonZeroUsize;
 use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
@@ -59,7 +60,7 @@ struct GlobalState<M> {
 struct GlobalRevision(AtomicUsize);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Revision(usize);
+struct Revision(NonZeroUsize);
 
 #[derive(Debug, Default)]
 struct ActiveQueryStack(Vec<ActiveQuery>);
@@ -410,16 +411,16 @@ impl GlobalRevision {
     }
 
     fn get(&self) -> Revision {
-        Revision(self.0.load(Ordering::Acquire))
+        Revision(NonZeroUsize::new(self.0.load(Ordering::Acquire)).expect("revision overflow"))
     }
 }
 
 impl Default for GlobalRevision {
     fn default() -> Self {
-        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0 + 1))
+        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0.get() + 1))
     }
 }
 
 impl Revision {
-    const NEVER_VERIFIED: Self = Self(0);
+    const NEVER_VERIFIED: Self = Self(NonZeroUsize::new(1).unwrap());
 }
