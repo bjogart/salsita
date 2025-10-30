@@ -61,7 +61,7 @@ where
         memo_id
     }
 
-    pub(crate) fn intern<Q>(
+    pub(crate) fn memo_id<Q>(
         &mut self,
         args_id: InternId,
         make_cancel_value_id: impl FnOnce() -> Option<InternId>,

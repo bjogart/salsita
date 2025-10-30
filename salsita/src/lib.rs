@@ -196,7 +196,7 @@ where
             .memos
             .write()
             .expect(INCONSISTENT_STATE)
-            .intern::<Q>(args_id, || self.make_cancel_value_id::<Q>());
+            .memo_id::<Q>(args_id, || self.make_cancel_value_id::<Q>());
         self.verify_memo(self.global.rev.get(), memo_id);
         if self.should_cancel()
             && let Some(cancel_value_id) = self
