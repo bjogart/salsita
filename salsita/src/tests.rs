@@ -76,13 +76,23 @@ fn modifications_are_blocked_until_snapshots_drop() {
     let mut db: Db<()> = Db::default();
     let (sender, receiver) = mpsc::channel::<Snapshot<()>>();
     let price = db.new_input::<BurritoPrice>(8);
+    // Sanity check: on the main thread we observe the value we just created.
     assert_eq!(db.snapshot().query::<BurritoPrice>(&price), 8);
     let handle = thread::spawn({
+        // Create one snapshot, which moves to the other thread, where it will
+        // remain live until we drop it.
         let snapshot = db.snapshot();
         move || {
-            assert_eq!(snapshot.query::<BurritoPrice>(&price), 8);
-            std::mem::drop(snapshot);
+            {
+                let snapshot = snapshot;
+                // While this snapshot is live, `set_input` blocks and will not
+                // modify the input.
+                assert_eq!(snapshot.query::<BurritoPrice>(&price), 8);
+                // Snapshot is dropped here; meaning that `set_input` is free to
+                // modify its input.
+            }
             let snapshot = receiver.recv().unwrap();
+            // The new snapshot sees the updated input.
             assert_eq!(snapshot.query::<BurritoPrice>(&price), 4);
         }
     });
