@@ -200,21 +200,19 @@ where
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
         self.track_dep(memo_id);
-        let (last_verified, deps, has_value) = {
+        let (last_verified, deps) = {
             let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
             let memo = memos.memo(memo_id);
             let last_verified = memo.last_verified;
             if last_verified == current_rev || self.should_cancel() && memo.cancelable {
                 return;
             }
-            let deps = memo.deps.clone();
-            let has_value = memo.value.is_some();
-            (last_verified, deps, has_value)
+            (last_verified, memo.deps.clone())
         };
         let deps_postdate_memo = deps
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
-        if !deps_postdate_memo && has_value {
+        if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
             self.global
                 .memos
                 .write()
