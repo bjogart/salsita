@@ -11,7 +11,7 @@ use core::marker::PhantomData;
 
 pub trait Query: 'static {
     type Args: Clone + Eq + Hash + Send + Sync;
-    type Out: Clone + Eq + Send + Sync;
+    type Out: Clone + Eq + Hash + Send + Sync;
 
     fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where

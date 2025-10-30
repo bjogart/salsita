@@ -9,7 +9,7 @@ use salsita::query::Query;
 
 pub(crate) trait Op: 'static {
     type Args: Clone + Eq + Hash + Send;
-    type Out: Clone + Eq + Default + Send + Sync;
+    type Out: Clone + Eq + Hash + Default + Send + Sync;
     fn op(args: Self::Args) -> Self::Out;
 }
 

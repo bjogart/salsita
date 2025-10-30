@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use crate::intern::InternId;
 use crate::intern::Interner;
 use crate::memo::MemoId;
 use crate::memo::Memos;
@@ -8,7 +9,7 @@ use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
 use alloc::sync::Arc;
-use core::any::Any;
+use core::any::type_name;
 use core::cell::RefCell;
 use core::num::NonZeroUsize;
 use core::ops::Deref;
@@ -97,7 +98,7 @@ struct PendingCommit {
 
 #[must_use]
 struct PendingChange {
-    value: Box<dyn Any + Send + Sync>,
+    value_id: InternId,
     deps: Option<Vec<MemoId>>,
 }
 
@@ -110,24 +111,25 @@ where
         &self.global.metrics
     }
 
-    pub fn new_input<I>(&mut self, value: I::Value) -> InputId<I>
+    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
     where
         I: Input,
     {
         let rev = self.global.rev.get();
         let mut interner = self.global.interner.write().expect(INCONSISTENT_STATE);
+        let value_id = interner.intern(value);
         interner.intern_input_id(|args_id| {
             let memo_id = self
                 .global
                 .memos
                 .write()
                 .expect(INCONSISTENT_STATE)
-                .new_input::<I>(rev, args_id, value);
+                .new_input::<I>(rev, args_id, value_id);
             InputId::from(memo_id)
         })
     }
 
-    pub fn set_input<I>(&mut self, id: InputId<I>, value: I::Value)
+    pub fn set_input<I>(&mut self, id: InputId<I>, value: &I::Value)
     where
         I: Input,
     {
@@ -146,9 +148,14 @@ where
         global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = global.rev.bump();
-        let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
+        let value_id = global
+            .interner
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .intern(value);
         let mut commit = PendingCommit::new(current_rev, id.memo_id());
-        commit.change = Some(PendingChange::new(Box::new(value)));
+        commit.change = Some(PendingChange::new(value_id));
+        let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
         let _update = MemoUpdate::new(&mut *memos, commit);
     }
 
@@ -226,13 +233,11 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        let eval = self
-            .global
-            .memos
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .memo(memo_id)
-            .eval;
+        let (eval, intern_output, memo_value_id) = {
+            let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
+            let memo = memos.memo(memo_id);
+            (memo.eval, memo.intern_output, memo.value_id)
+        };
         let args = self
             .global
             .interner
@@ -244,10 +249,12 @@ where
             let _eval_guard = self.global.metrics.eval_scope();
             eval(self, args.as_ref())
         };
-        let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
-        let memo = memos.memo(memo_id);
-        if let Some(prev) = memo.value.as_ref()
-            && (memo.eq)(out.as_ref(), prev.as_ref())
+        let out = (intern_output)(
+            &mut self.global.interner.write().expect(INCONSISTENT_STATE),
+            out.as_ref(),
+        );
+        if let Some(prev) = memo_value_id
+            && out == prev
         {
             return;
         }
@@ -290,13 +297,20 @@ where
     where
         Q: Query,
     {
-        self.global
+        let value_id = self
+            .global
             .memos
             .read()
             .expect(INCONSISTENT_STATE)
             .memo(memo_id)
-            .value::<Q::Out>()
-            .clone()
+            .value_id
+            .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
+        let interner = self.global.interner.read().expect(INCONSISTENT_STATE);
+        let interned = interner.interned(value_id);
+        let Some(out) = interned.as_ref().downcast_ref::<Q::Out>() else {
+            panic_expected_different_type::<&Q::Out>()
+        };
+        out.clone()
     }
 }
 
@@ -354,8 +368,8 @@ where
         } = self;
         let memo = memos.memo_mut(*memo_id);
         memo.last_verified = *current_rev;
-        if let Some(PendingChange { deps, value }) = change.take() {
-            memo.value = Some(value);
+        if let Some(PendingChange { deps, value_id }) = change.take() {
+            memo.value_id = Some(value_id);
             memo.last_changed = *current_rev;
             if let Some(deps) = deps {
                 memo.deps = deps;
@@ -383,8 +397,11 @@ impl PendingCommit {
 }
 
 impl PendingChange {
-    fn new(value: Box<dyn Any + Send + Sync>) -> Self {
-        Self { value, deps: None }
+    const fn new(value_id: InternId) -> Self {
+        Self {
+            value_id,
+            deps: None,
+        }
     }
 }
 
@@ -423,4 +440,11 @@ impl Default for GlobalRevision {
 
 impl Revision {
     const NEVER_VERIFIED: Self = Self(NonZeroUsize::new(1).unwrap());
+}
+
+pub(crate) fn panic_expected_different_type<T>() -> ! {
+    panic!(
+        "bug (type mismatch): expected `{}` but found different type (possible database mix-up)",
+        type_name::<T>()
+    )
 }

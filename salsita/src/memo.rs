@@ -1,12 +1,13 @@
 use crate::Revision;
 use crate::Snapshot;
 use crate::intern::InternId;
+use crate::intern::Interner;
 use crate::metrics::Metrics;
+use crate::panic_expected_different_type;
 use crate::query::Input;
 use crate::query::Query;
 use core::any::Any;
 use core::any::TypeId;
-use core::any::type_name;
 use core::fmt::Debug;
 use core::hash::Hash;
 use std::collections::HashMap;
@@ -28,12 +29,13 @@ pub(crate) struct MemoId {
 pub(crate) struct MemoEntry<M> {
     pub(crate) eval:
         fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) eq: fn(a: &(dyn Any + Send + Sync), b: &(dyn Any + Send + Sync)) -> bool,
+    pub(crate) intern_output:
+        fn(interner: &mut Interner, value: &(dyn Any + Send + Sync)) -> InternId,
     pub(crate) cancelable: bool,
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
-    pub(crate) value: Option<Box<dyn Any + Send + Sync>>,
+    pub(crate) value_id: Option<InternId>,
 }
 
 impl<M> Memos<M>
@@ -44,7 +46,7 @@ where
         &mut self,
         rev: Revision,
         args_id: InternId,
-        value: I::Value,
+        value_id: InternId,
     ) -> MemoId
     where
         I: Input,
@@ -52,7 +54,7 @@ where
         let query = TypeId::of::<I>();
         let memo_id = MemoId { query, args_id };
         let mut entry = MemoEntry::new::<I>();
-        entry.value = Some(Box::new(value));
+        entry.value_id = Some(value_id);
         entry.last_verified = rev;
         entry.last_changed = rev;
         self.memos.insert(memo_id, entry);
@@ -90,12 +92,12 @@ where
     {
         return Self {
             eval: eval::<M, Q>,
-            eq: eq::<Q::Out>,
+            intern_output: intern_output::<Q::Out>,
             cancelable: Q::canceled().is_some(),
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
             last_changed: Revision::NEVER_VERIFIED,
-            value: None,
+            value_id: None,
         };
 
         fn eval<M, Q>(
@@ -106,40 +108,23 @@ where
             M: Metrics,
             Q: Query,
         {
-            let args = downcast_ref(args);
+            let Some(args) = args.downcast_ref::<Q::Args>() else {
+                panic_expected_different_type::<&Q::Args>()
+            };
             let out = Q::eval(snapshot, args);
             Box::new(out)
         }
 
-        fn eq<T>(a: &(dyn Any + Send + Sync), b: &(dyn Any + Send + Sync)) -> bool
+        fn intern_output<T>(interner: &mut Interner, out: &(dyn Any + Send + Sync)) -> InternId
         where
-            T: Eq + 'static,
+            T: Clone + Eq + Hash + Send + Sync + 'static,
         {
-            downcast_ref::<T>(a) == downcast_ref(b)
+            let Some(out) = out.downcast_ref::<T>() else {
+                panic_expected_different_type::<&T>()
+            };
+            interner.intern(out)
         }
     }
-
-    pub(crate) fn value<T>(&self) -> &T
-    where
-        T: 'static,
-    {
-        self.value
-            .as_ref()
-            .map(|value| downcast_ref(value.as_ref()))
-            .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
-    }
-}
-
-fn downcast_ref<T>(value: &(dyn Any + Send + Sync)) -> &T
-where
-    T: 'static,
-{
-    value.downcast_ref().unwrap_or_else(|| {
-        panic!(
-            "bug (type mismatch): expected `{}` but found different type (possible database mix-up)",
-            type_name::<T>()
-        )
-    })
 }
 
 impl MemoId {

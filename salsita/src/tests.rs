@@ -29,7 +29,7 @@ fn only_dependent_queries_recompute_on_input_change() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    let discount_price = db.new_input::<BurritoPrice>(4);
+    let discount_price = db.new_input::<BurritoPrice>(&4);
     assert_queries(
         &db,
         discount_price,
@@ -47,8 +47,8 @@ fn unchanged_outputs_stop_propagation() {
     let mut db = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    db.set_input(price, 4);
-    db.set_input(count, 5);
+    db.set_input(price, &4);
+    db.set_input(count, &5);
     assert_queries(
         &db,
         price,
@@ -67,7 +67,7 @@ fn propagation_updates_transitive_dependents() {
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
     assert_query_delta::<PriceWithVat>(&db, &(price, count), Some(35), 1, 0);
-    db.set_input(price, 4);
+    db.set_input(price, &4);
     assert_query_delta::<PriceWithVat>(&db, &(price, count), Some(23), 5, 3);
 }
 
@@ -75,7 +75,7 @@ fn propagation_updates_transitive_dependents() {
 fn modifications_are_blocked_until_snapshots_drop() {
     let mut db: Db<()> = Db::default();
     let (sender, receiver) = mpsc::channel::<Snapshot<()>>();
-    let price = db.new_input::<BurritoPrice>(8);
+    let price = db.new_input::<BurritoPrice>(&8);
     // Sanity check: on the main thread we observe the value we just created.
     assert_eq!(db.snapshot().query::<BurritoPrice>(&price), 8);
     let handle = thread::spawn({
@@ -85,10 +85,10 @@ fn modifications_are_blocked_until_snapshots_drop() {
         move || {
             {
                 let snapshot = snapshot;
-                // While this snapshot is live, `set_input` blocks and will not
+                // While this snapshot is live, `set_input` blocks &and will not
                 // modify the input.
                 assert_eq!(snapshot.query::<BurritoPrice>(&price), 8);
-                // Snapshot is dropped here; meaning that `set_input` is free to
+                // Snapshot is dropped here; meaning that `set_input` is &free to
                 // modify its input.
             }
             let snapshot = receiver.recv().unwrap();
@@ -96,7 +96,7 @@ fn modifications_are_blocked_until_snapshots_drop() {
             assert_eq!(snapshot.query::<BurritoPrice>(&price), 4);
         }
     });
-    db.set_input(price, 4);
+    db.set_input(price, &4);
     sender.send(db.snapshot()).unwrap();
     handle.join().unwrap();
 }
@@ -105,9 +105,9 @@ fn modifications_are_blocked_until_snapshots_drop() {
 fn modifications_trigger_query_cancellation() {
     let mut db: Db<()> = Db::default();
     let worker_ready = Arc::new((Mutex::new(false), Condvar::new()));
-    let price = db.new_input::<BurritoPrice>(8);
+    let price = db.new_input::<BurritoPrice>(&8);
     // Spawn a worker thread that holds a live snapshot. While this snapshot
-    // exists, calling `set_input()` in the main thread should block and trigger
+    // exists, calling `set_input()` &in the main thread should block and trigger
     // cancellation inside the worker thread.
     let handle = thread::spawn({
         let snapshot = db.snapshot();
@@ -121,7 +121,7 @@ fn modifications_trigger_query_cancellation() {
             *mutex.lock().unwrap() = true;
             cvar.notify_one();
             // Wait for cancellation to be signalled, which is the signal that
-            // `set_input` is blocking.
+            // `set_input` is &blocking.
             while !snapshot.should_cancel() {
                 thread::yield_now();
             }
@@ -137,7 +137,7 @@ fn modifications_trigger_query_cancellation() {
     }
     // With the worker snapshot still alive, this call will: set the global
     // cancellation flag and block until the worker snapshot is dropped.
-    db.set_input(price, 4);
+    db.set_input(price, &4);
     // Join and unwrap the worker thread to propagate failed assertions.
     handle.join().unwrap();
 }
@@ -167,9 +167,9 @@ fn init_inputs(
     InputId<BurritoCount>,
     InputId<SalsaPerBurrito>,
 ) {
-    let price = db.new_input::<BurritoPrice>(8);
-    let count = db.new_input::<BurritoCount>(3);
-    let burrito_salsa = db.new_input::<SalsaPerBurrito>(40);
+    let price = db.new_input::<BurritoPrice>(&8);
+    let count = db.new_input::<BurritoCount>(&3);
+    let burrito_salsa = db.new_input::<SalsaPerBurrito>(&40);
     (price, count, burrito_salsa)
 }
 
