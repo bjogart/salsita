@@ -264,7 +264,7 @@ where
             .interner
             .read()
             .expect(INCONSISTENT_STATE)
-            .interned(memo_id.args());
+            .get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = self.global.metrics.eval_scope();
@@ -338,7 +338,7 @@ where
             .interner
             .read()
             .expect(INCONSISTENT_STATE)
-            .interned(value_id)
+            .get(value_id)
             .downcast::<Q::Out>()
         else {
             panic_expected_different_type::<Q::Out>()

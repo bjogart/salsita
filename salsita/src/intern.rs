@@ -75,7 +75,7 @@ impl Interner {
         T: Eq + 'static,
     {
         bucket.0.iter().find_map(|id| {
-            if let Some(stored) = Self::interned_ref(values, *id).downcast_ref::<T>()
+            if let Some(stored) = Self::get_ref(values, *id).downcast_ref::<T>()
                 && value == stored
             {
                 return Some(*id);
@@ -99,14 +99,11 @@ impl Interner {
         id
     }
 
-    pub(crate) fn interned(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
-        Arc::clone(Self::interned_ref(&self.values, id))
+    pub(crate) fn get(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
+        Arc::clone(Self::get_ref(&self.values, id))
     }
 
-    fn interned_ref(
-        values: &[Arc<dyn Any + Send + Sync>],
-        id: InternId,
-    ) -> &Arc<dyn Any + Send + Sync> {
+    fn get_ref(values: &[Arc<dyn Any + Send + Sync>], id: InternId) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx).expect(UNKNOWN_ID)
     }
 }
