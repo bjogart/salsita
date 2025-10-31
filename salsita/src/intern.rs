@@ -20,8 +20,7 @@ type Fingerprint = u64;
 
 type FingerprintHasher = RandomState;
 
-#[derive(Debug, Default)]
-struct Bucket(Vec<InternId>);
+type Bucket = Vec<InternId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct InternId {
@@ -73,7 +72,7 @@ impl Interner {
     where
         T: Eq + 'static,
     {
-        bucket.0.iter().find_map(|id| {
+        bucket.iter().find_map(|id| {
             if let Some(stored) = Self::get_ref(values, *id).downcast_ref::<T>()
                 && value == stored
             {
@@ -94,7 +93,7 @@ impl Interner {
         let idx = values.len();
         let id = InternId { idx };
         values.push(Arc::new(value.clone()));
-        bucket.0.push(id);
+        bucket.push(id);
         id
     }
 
