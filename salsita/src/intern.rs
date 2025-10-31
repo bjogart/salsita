@@ -11,7 +11,7 @@ const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another
 
 #[derive(Debug, Default)]
 pub(crate) struct Interner {
-    print_hasher: FingerprintHasher,
+    fingerprint_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
     values: Vec<Arc<dyn Any + Send + Sync>>,
 }
@@ -47,7 +47,7 @@ impl Interner {
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
-        let bucket = Self::find_bucket(&self.print_hasher, &mut self.index, value);
+        let bucket = Self::find_bucket(&self.fingerprint_hasher, &mut self.index, value);
         match Self::find_bucket_entry::<T>(bucket, &self.values, value) {
             Some(id) => id,
             None => Self::insert_value(bucket, &mut self.values, value),
