@@ -16,8 +16,7 @@ pub(crate) struct Interner {
     values: Vec<Arc<dyn Any + Send + Sync>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct Fingerprint(u64);
+type Fingerprint = u64;
 
 type FingerprintHasher = RandomState;
 
@@ -62,7 +61,7 @@ impl Interner {
     where
         T: Hash + 'static,
     {
-        let print = Fingerprint::new(hash_builder, value);
+        let print = hash_builder.hash_one(value);
         index.entry(print).or_default()
     }
 
@@ -105,14 +104,5 @@ impl Interner {
 
     fn get_ref(values: &[Arc<dyn Any + Send + Sync>], id: InternId) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx).expect(UNKNOWN_ID)
-    }
-}
-
-impl Fingerprint {
-    fn new<T>(hash_builder: &FingerprintHasher, value: &T) -> Self
-    where
-        T: Hash + 'static,
-    {
-        Self(hash_builder.hash_one(value))
     }
 }
