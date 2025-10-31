@@ -20,8 +20,7 @@ pub(crate) struct QueryRegistry<M> {
 pub(crate) struct Ops<M> {
     pub(crate) eval:
         fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) intern_output:
-        fn(interner: &mut Interner, value: &(dyn Any + Send + Sync)) -> InternId,
+    pub(crate) intern_output: fn(interner: &Interner, value: &(dyn Any + Send + Sync)) -> InternId,
 }
 
 impl<M> QueryRegistry<M>
@@ -78,7 +77,7 @@ where
             Box::new(out)
         }
 
-        fn intern_output<T>(interner: &mut Interner, out: &(dyn Any + Send + Sync)) -> InternId
+        fn intern_output<T>(interner: &Interner, out: &(dyn Any + Send + Sync)) -> InternId
         where
             T: Clone + Eq + Hash + Send + Sync + 'static,
         {

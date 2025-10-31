@@ -55,7 +55,7 @@ struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
 struct GlobalState<M> {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
-    interner: RwLock<Interner>,
+    interner: Interner,
     memos: RwLock<Memos>,
     registry: QueryRegistry<M>,
     metrics: M,
@@ -118,9 +118,8 @@ where
     {
         let rev = self.global.rev.get();
         let query_id = self.global.registry.query_id::<I>();
-        let mut interner = self.global.interner.write().expect(INCONSISTENT_STATE);
-        let value_id = interner.intern(value);
-        interner.intern_input_id(|args_id| {
+        let value_id = self.global.interner.intern(value);
+        self.global.interner.intern_input_id(|args_id| {
             let memo_id = self
                 .global
                 .memos
@@ -150,11 +149,7 @@ where
         global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = global.rev.bump();
-        let value_id = global
-            .interner
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .intern(value);
+        let value_id = global.interner.intern(value);
         let mut commit = PendingCommit::new(current_rev, id.memo_id());
         commit.change = Some(PendingChange::new(value_id));
         let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
@@ -188,12 +183,7 @@ where
     {
         let _query_guard = self.global.metrics.query_scope();
         let query_id = self.global.registry.query_id::<Q>();
-        let args_id = self
-            .global
-            .interner
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .intern(args);
+        let args_id = self.global.interner.intern(args);
         let memo_id = self
             .global
             .memos
@@ -219,13 +209,7 @@ where
     where
         Q: Query,
     {
-        Q::canceled().map(|cancel_value| {
-            self.global
-                .interner
-                .write()
-                .expect(INCONSISTENT_STATE)
-                .intern(&cancel_value)
-        })
+        Q::canceled().map(|cancel_value| self.global.interner.intern(&cancel_value))
     }
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
@@ -265,21 +249,13 @@ where
             .registry
             .get(memo_id.query_id())
             .expect("bug: query not registered");
-        let args = self
-            .global
-            .interner
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .get(memo_id.args());
+        let args = self.global.interner.get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = self.global.metrics.eval_scope();
             eval(self, args.as_ref())
         };
-        let out = (intern_output)(
-            &mut self.global.interner.write().expect(INCONSISTENT_STATE),
-            out.as_ref(),
-        );
+        let out = (intern_output)(&self.global.interner, out.as_ref());
         let memo_value_id = self
             .global
             .memos
@@ -346,14 +322,7 @@ where
     where
         Q: Query,
     {
-        let Ok(out) = self
-            .global
-            .interner
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .get(value_id)
-            .downcast::<Q::Out>()
-        else {
+        let Ok(out) = self.global.interner.get(value_id).downcast::<Q::Out>() else {
             panic_expected_different_type::<Q::Out>()
         };
         out

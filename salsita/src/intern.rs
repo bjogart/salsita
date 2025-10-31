@@ -1,3 +1,4 @@
+use crate::INCONSISTENT_STATE;
 use crate::query::Input;
 use crate::query::InputId;
 use alloc::sync::Arc;
@@ -6,11 +7,15 @@ use core::hash::BuildHasher as _;
 use core::hash::Hash;
 use std::collections::HashMap;
 use std::hash::RandomState;
+use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Interner {
+pub(crate) struct Interner(RwLock<InternerInner>);
+
+#[derive(Debug, Default)]
+struct InternerInner {
     fingerprint_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
     values: Vec<Arc<dyn Any + Send + Sync>>,
@@ -28,28 +33,29 @@ pub(crate) struct InternId {
 }
 
 impl Interner {
-    pub(crate) fn intern_input_id<I>(
-        &mut self,
-        f: impl FnOnce(InternId) -> InputId<I>,
-    ) -> InputId<I>
+    pub(crate) fn intern_input_id<I>(&self, f: impl FnOnce(InternId) -> InputId<I>) -> InputId<I>
     where
         I: Input,
     {
-        let idx = self.values.len();
+        let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
         let input_id = f(InternId { idx });
         self.intern(&input_id);
         input_id
     }
 
-    pub(crate) fn intern<T>(&mut self, value: &T) -> InternId
+    pub(crate) fn intern<T>(&self, value: &T) -> InternId
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
-        let bucket = Self::find_bucket(&self.fingerprint_hasher, &mut self.index, value);
-        match Self::find_bucket_entry::<T>(bucket, &self.values, value) {
-            Some(id) => id,
-            None => Self::insert_value(bucket, &mut self.values, value),
-        }
+        let mut inner = self.0.write().expect(INCONSISTENT_STATE);
+        let InternerInner {
+            fingerprint_hasher,
+            index,
+            values,
+        } = &mut *inner;
+        let bucket = Self::find_bucket(fingerprint_hasher, index, value);
+        Self::find_bucket_entry::<T>(bucket, values, value)
+            .unwrap_or_else(|| Self::insert_value(bucket, values, value))
     }
 
     fn find_bucket<'index, T>(
@@ -98,7 +104,10 @@ impl Interner {
     }
 
     pub(crate) fn get(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
-        Arc::clone(Self::get_ref(&self.values, id))
+        Arc::clone(Self::get_ref(
+            &self.0.read().expect(INCONSISTENT_STATE).values,
+            id,
+        ))
     }
 
     fn get_ref(values: &[Arc<dyn Any + Send + Sync>], id: InternId) -> &Arc<dyn Any + Send + Sync> {
