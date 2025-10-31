@@ -171,7 +171,7 @@ where
     }
 
     #[must_use]
-    pub fn should_cancel(&self) -> bool {
+    pub(crate) fn should_cancel(&self) -> bool {
         self.global.should_cancel.load(Ordering::Relaxed)
     }
 }
