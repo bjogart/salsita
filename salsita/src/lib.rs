@@ -57,7 +57,7 @@ struct GlobalState<M> {
     should_cancel: AtomicBool,
     interner: RwLock<Interner>,
     memos: RwLock<Memos>,
-    registry: RwLock<QueryRegistry<M>>,
+    registry: QueryRegistry<M>,
     metrics: M,
 }
 
@@ -117,12 +117,7 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self
-            .global
-            .registry
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .query_id::<I>();
+        let query_id = self.global.registry.query_id::<I>();
         let mut interner = self.global.interner.write().expect(INCONSISTENT_STATE);
         let value_id = interner.intern(value);
         interner.intern_input_id(|args_id| {
@@ -192,12 +187,7 @@ where
         Q: Query,
     {
         let _query_guard = self.global.metrics.query_scope();
-        let query_id = self
-            .global
-            .registry
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .query_id::<Q>();
+        let query_id = self.global.registry.query_id::<Q>();
         let args_id = self
             .global
             .interner
@@ -273,8 +263,6 @@ where
         } = self
             .global
             .registry
-            .read()
-            .expect(INCONSISTENT_STATE)
             .get(memo_id.query_id())
             .expect("bug: query not registered");
         let args = self

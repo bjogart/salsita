@@ -1,3 +1,4 @@
+use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::intern::InternId;
 use crate::intern::Interner;
@@ -8,10 +9,11 @@ use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 #[derive(Debug, Default)]
 pub(crate) struct QueryRegistry<M> {
-    ops: HashMap<TypeId, Ops<M>>,
+    ops: RwLock<HashMap<TypeId, Ops<M>>>,
 }
 
 #[derive(Debug)]
@@ -26,17 +28,25 @@ impl<M> QueryRegistry<M>
 where
     M: Metrics,
 {
-    pub(crate) fn query_id<Q>(&mut self) -> TypeId
+    pub(crate) fn query_id<Q>(&self) -> TypeId
     where
         Q: Query,
     {
         let query_id = TypeId::of::<Q>();
-        self.ops.entry(query_id).or_insert_with(Ops::new::<Q>);
+        self.ops
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .entry(query_id)
+            .or_insert_with(Ops::new::<Q>);
         query_id
     }
 
     pub(crate) fn get(&self, query_id: TypeId) -> Option<Ops<M>> {
-        self.ops.get(&query_id).copied()
+        self.ops
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .get(&query_id)
+            .copied()
     }
 }
 
