@@ -29,7 +29,6 @@ pub(crate) struct MemoEntry {
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
     pub(crate) value_id: Option<InternId>,
-    pub(crate) cancel_value_id: Option<InternId>,
 }
 
 impl Memos {
@@ -41,7 +40,7 @@ impl Memos {
         value_id: InternId,
     ) -> MemoId {
         let memo_id = MemoId { query_id, args_id };
-        let mut entry = MemoEntry::new(None);
+        let mut entry = MemoEntry::new();
         entry.value_id = Some(value_id);
         entry.last_verified = rev;
         entry.last_changed = rev;
@@ -53,19 +52,14 @@ impl Memos {
         memo_id
     }
 
-    pub(crate) fn memo_id(
-        &self,
-        query_id: TypeId,
-        args_id: InternId,
-        make_cancel_value_id: impl FnOnce() -> Option<InternId>,
-    ) -> MemoId {
+    pub(crate) fn memo_id(&self, query_id: TypeId, args_id: InternId) -> MemoId {
         let memo_id = MemoId { query_id, args_id };
         self.0
             .write()
             .expect(INCONSISTENT_STATE)
             .memos
             .entry(memo_id)
-            .or_insert_with(|| MemoEntry::new(make_cancel_value_id()));
+            .or_insert_with(MemoEntry::new);
         memo_id
     }
 
@@ -91,13 +85,12 @@ impl Memos {
 }
 
 impl MemoEntry {
-    const fn new(cancel_value_id: Option<InternId>) -> Self {
+    const fn new() -> Self {
         Self {
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
             last_changed: Revision::NEVER_VERIFIED,
             value_id: None,
-            cancel_value_id,
         }
     }
 }
