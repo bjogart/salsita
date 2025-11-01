@@ -20,7 +20,6 @@ use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::sync::Condvar;
 use std::sync::Mutex;
-use std::sync::RwLock;
 
 mod intern;
 pub mod memo;
@@ -56,7 +55,7 @@ struct GlobalState<M> {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
     interner: Interner,
-    memos: RwLock<Memos>,
+    memos: Memos,
     registry: QueryRegistry<M>,
     metrics: M,
 }
@@ -86,7 +85,7 @@ where
 
 #[must_use]
 struct MemoUpdate<'memos> {
-    memos: &'memos mut Memos,
+    memos: &'memos Memos,
     commit: PendingCommit,
 }
 
@@ -123,8 +122,6 @@ where
             let memo_id = self
                 .global
                 .memos
-                .write()
-                .expect(INCONSISTENT_STATE)
                 .new_input(rev, query_id, args_id, value_id);
             InputId::from(memo_id)
         })
@@ -152,8 +149,7 @@ where
         let value_id = global.interner.intern(value);
         let mut commit = PendingCommit::new(current_rev, id.memo_id());
         commit.change = Some(PendingChange::new(value_id));
-        let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
-        let _update = MemoUpdate::new(&mut memos, commit);
+        let _update = MemoUpdate::new(&global.memos, commit);
     }
 
     #[must_use]
@@ -187,18 +183,11 @@ where
         let memo_id = self
             .global
             .memos
-            .write()
-            .expect(INCONSISTENT_STATE)
             .memo_id(query_id, args_id, || self.make_cancel_value_id::<Q>());
         self.verify_memo(self.global.rev.get(), memo_id);
         if self.should_cancel()
-            && let Some(cancel_value_id) = self
-                .global
-                .memos
-                .read()
-                .expect(INCONSISTENT_STATE)
-                .memo(memo_id)
-                .cancel_value_id
+            && let Some(cancel_value_id) =
+                self.global.memos.memo(memo_id, |memo| memo.cancel_value_id)
         {
             return self.interned_output::<Q>(cancel_value_id);
         }
@@ -215,15 +204,14 @@ where
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
-            let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
-            let memo = memos.memo(memo_id);
-            let last_verified = memo.last_verified;
-            if last_verified == current_rev
-                || self.should_cancel() && memo.cancel_value_id.is_some()
-            {
+            let (last_verified, cancel_value_id, deps) = self.global.memos.memo(memo_id, |memo| {
+                let last_verified = memo.last_verified;
+                (last_verified, memo.cancel_value_id, memo.deps.clone())
+            });
+            if last_verified == current_rev || self.should_cancel() && cancel_value_id.is_some() {
                 return;
             }
-            (last_verified, memo.deps.clone())
+            (last_verified, deps)
         };
         let deps_postdate_memo = deps
             .into_iter()
@@ -231,10 +219,7 @@ where
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
             self.global
                 .memos
-                .write()
-                .expect(INCONSISTENT_STATE)
-                .memo_mut(memo_id)
-                .last_verified = current_rev;
+                .memo_mut(memo_id, |memo| memo.last_verified = current_rev);
             return;
         }
         self.eval_memo(current_rev, memo_id);
@@ -256,14 +241,7 @@ where
             eval(self, args.as_ref())
         };
         let out = (intern_output)(&self.global.interner, out.as_ref());
-        let memo_value_id = self
-            .global
-            .memos
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .memo(memo_id)
-            .value_id;
-        if let Some(prev) = memo_value_id
+        if let Some(prev) = self.global.memos.memo(memo_id, |memo| memo.value_id)
             && out == prev
         {
             return;
@@ -280,11 +258,7 @@ where
         self.verify_memo(current_rev, dep);
         self.global
             .memos
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .memo(dep)
-            .last_changed
-            > memo_last_verified
+            .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
     fn install_query(&self, current_rev: Revision, memo_id: MemoId) -> QueryUpdate<'_, M> {
@@ -307,15 +281,10 @@ where
     where
         Q: Query,
     {
-        self.interned_output::<Q>(
-            self.global
-                .memos
-                .read()
-                .expect(INCONSISTENT_STATE)
-                .memo(memo_id)
-                .value_id
-                .expect("bug: memo entry has no stored value (value not yet computed or memoized)"),
-        )
+        self.interned_output::<Q>(self.global.memos.memo(memo_id, |memo| {
+            memo.value_id
+                .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
+        }))
     }
 
     fn interned_output<Q>(&self, value_id: InternId) -> Arc<Q::Out>
@@ -345,21 +314,18 @@ where
     fn drop(&mut self) {
         let Self { snapshot, commit } = self;
         let mut active_queries = snapshot.active_queries.borrow_mut();
-        let Ok(mut memos) = snapshot.db.global.memos.write() else {
-            return;
-        };
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         if let Some(change) = commit.change.as_mut()
             && let Some(ActiveQuery { deps }) = active_queries.pop()
         {
             change.deps = Some(deps);
         }
-        let _update = MemoUpdate::new(&mut memos, commit.take());
+        let _update = MemoUpdate::new(&snapshot.db.global.memos, commit.take());
     }
 }
 
 impl<'memos> MemoUpdate<'memos> {
-    const fn new(memos: &'memos mut Memos, commit: PendingCommit) -> Self {
+    const fn new(memos: &'memos Memos, commit: PendingCommit) -> Self {
         Self { memos, commit }
     }
 }
@@ -375,15 +341,16 @@ impl Drop for MemoUpdate<'_> {
                     change,
                 },
         } = self;
-        let memo = memos.memo_mut(*memo_id);
-        memo.last_verified = *current_rev;
-        if let Some(PendingChange { deps, value_id }) = change.take() {
-            memo.value_id = Some(value_id);
-            memo.last_changed = *current_rev;
-            if let Some(deps) = deps {
-                memo.deps = deps;
+        memos.memo_mut(*memo_id, |memo| {
+            memo.last_verified = *current_rev;
+            if let Some(PendingChange { deps, value_id }) = change.take() {
+                memo.value_id = Some(value_id);
+                memo.last_changed = *current_rev;
+                if let Some(deps) = deps {
+                    memo.deps = deps;
+                }
             }
-        }
+        });
     }
 }
 
