@@ -1,14 +1,19 @@
+use crate::INCONSISTENT_STATE;
 use crate::Revision;
 use crate::intern::InternId;
 use core::any::TypeId;
 use core::fmt::Debug;
 use core::hash::Hash;
 use std::collections::HashMap;
+use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Memos {
+pub(crate) struct Memos(RwLock<MemosInner>);
+
+#[derive(Debug, Default)]
+struct MemosInner {
     memos: HashMap<MemoId, MemoEntry>,
 }
 
@@ -29,7 +34,7 @@ pub(crate) struct MemoEntry {
 
 impl Memos {
     pub(crate) fn new_input(
-        &mut self,
+        &self,
         rev: Revision,
         query_id: TypeId,
         args_id: InternId,
@@ -40,29 +45,48 @@ impl Memos {
         entry.value_id = Some(value_id);
         entry.last_verified = rev;
         entry.last_changed = rev;
-        self.memos.insert(memo_id, entry);
+        self.0
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .memos
+            .insert(memo_id, entry);
         memo_id
     }
 
     pub(crate) fn memo_id(
-        &mut self,
+        &self,
         query_id: TypeId,
         args_id: InternId,
         make_cancel_value_id: impl FnOnce() -> Option<InternId>,
     ) -> MemoId {
         let memo_id = MemoId { query_id, args_id };
-        self.memos
+        self.0
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .memos
             .entry(memo_id)
             .or_insert_with(|| MemoEntry::new(make_cancel_value_id()));
         memo_id
     }
 
-    pub(crate) fn memo_mut(&mut self, id: MemoId) -> &mut MemoEntry {
-        self.memos.get_mut(&id).expect(UNKNOWN_ID)
+    pub(crate) fn memo_mut(&self, id: MemoId, f: impl FnOnce(&mut MemoEntry)) {
+        f(self
+            .0
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .memos
+            .get_mut(&id)
+            .expect(UNKNOWN_ID))
     }
 
-    pub(crate) fn memo(&self, id: MemoId) -> &MemoEntry {
-        self.memos.get(&id).expect(UNKNOWN_ID)
+    pub(crate) fn memo<T>(&self, id: MemoId, f: impl FnOnce(&MemoEntry) -> T) -> T {
+        f(self
+            .0
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memos
+            .get(&id)
+            .expect(UNKNOWN_ID))
     }
 }
 
