@@ -1,6 +1,6 @@
 use crate::INCONSISTENT_STATE;
 use crate::Revision;
-use crate::intern::InternId;
+use crate::storage::InternId;
 use core::any::TypeId;
 use core::fmt::Debug;
 use core::hash::Hash;

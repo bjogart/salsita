@@ -1,8 +1,6 @@
 extern crate alloc;
 
 use crate::event::ScopedEvent;
-use crate::intern::InternId;
-use crate::intern::Interner;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
@@ -10,6 +8,8 @@ use crate::query::InputId;
 use crate::query::Query;
 use crate::registry::Ops;
 use crate::registry::QueryRegistry;
+use crate::storage::InternId;
+use crate::storage::Interner;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
@@ -22,10 +22,10 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 
 pub mod event;
-mod intern;
 pub mod memo;
 pub mod query;
 mod registry;
+mod storage;
 #[cfg(test)]
 mod tests;
 

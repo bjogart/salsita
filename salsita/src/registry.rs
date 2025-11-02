@@ -1,10 +1,10 @@
 use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::event;
-use crate::intern::InternId;
-use crate::intern::Interner;
 use crate::panic_expected_different_type;
 use crate::query::Query;
+use crate::storage::InternId;
+use crate::storage::Interner;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
