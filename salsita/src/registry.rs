@@ -3,9 +3,7 @@ use crate::Snapshot;
 use crate::event;
 use crate::panic_expected_different_type;
 use crate::query::Query;
-use crate::storage::DefaultStorage;
-use crate::storage::DefaultStorageId;
-use crate::storage::Storage as _;
+use crate::storage::Storage;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
@@ -13,20 +11,26 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 #[derive(Debug, Default)]
-pub(crate) struct QueryRegistry<H> {
-    ops: RwLock<HashMap<TypeId, Ops<H>>>,
+pub(crate) struct QueryRegistry<S, H>
+where
+    S: Storage,
+{
+    ops: RwLock<HashMap<TypeId, Ops<S, H>>>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Ops<H> {
+pub(crate) struct Ops<S, H>
+where
+    S: Storage,
+{
     pub(crate) eval:
         fn(snapshot: &Snapshot<H>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) store_out:
-        fn(storage: &DefaultStorage, value: &(dyn Any + Send + Sync)) -> DefaultStorageId,
+    pub(crate) store_out: fn(storage: &S, value: &(dyn Any + Send + Sync)) -> S::Id,
 }
 
-impl<H> QueryRegistry<H>
+impl<S, H> QueryRegistry<S, H>
 where
+    S: Storage,
     H: event::Handler,
 {
     pub(crate) fn query_id<Q>(&self) -> TypeId
@@ -42,7 +46,7 @@ where
         query_id
     }
 
-    pub(crate) fn get(&self, query_id: TypeId) -> Option<Ops<H>> {
+    pub(crate) fn get(&self, query_id: TypeId) -> Option<Ops<S, H>> {
         self.ops
             .read()
             .expect(INCONSISTENT_STATE)
@@ -51,8 +55,9 @@ where
     }
 }
 
-impl<H> Ops<H>
+impl<S, H> Ops<S, H>
 where
+    S: Storage,
     H: event::Handler,
 {
     fn new<Q>() -> Self
@@ -61,7 +66,7 @@ where
     {
         return Self {
             eval: eval::<H, Q>,
-            store_out: store_output::<Q::Out>,
+            store_out: store_output::<S, Q::Out>,
         };
 
         fn eval<H, Q>(
@@ -79,11 +84,9 @@ where
             Box::new(out)
         }
 
-        fn store_output<T>(
-            storage: &DefaultStorage,
-            out: &(dyn Any + Send + Sync),
-        ) -> DefaultStorageId
+        fn store_output<S, T>(storage: &S, out: &(dyn Any + Send + Sync)) -> S::Id
         where
+            S: Storage,
             T: Clone + Eq + Hash + Send + Sync + 'static,
         {
             let Some(out) = out.downcast_ref::<T>() else {
@@ -94,10 +97,13 @@ where
     }
 }
 
-impl<H> Clone for Ops<H> {
+impl<S, H> Clone for Ops<S, H>
+where
+    S: Storage,
+{
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<H> Copy for Ops<H> {}
+impl<S, H> Copy for Ops<S, H> where S: Storage {}

@@ -57,7 +57,7 @@ struct GlobalState<H> {
     should_cancel: AtomicBool,
     storage: DefaultStorage,
     memos: Memos,
-    registry: QueryRegistry<H>,
+    registry: QueryRegistry<DefaultStorage, H>,
     event_handler: H,
 }
 
