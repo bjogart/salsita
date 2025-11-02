@@ -1,10 +1,10 @@
 use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::event;
-use crate::intern::InternId;
-use crate::intern::Interner;
 use crate::panic_expected_different_type;
 use crate::query::Query;
+use crate::storage::Storage;
+use crate::storage::StorageId;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
@@ -20,7 +20,7 @@ pub(crate) struct QueryRegistry<H> {
 pub(crate) struct Ops<H> {
     pub(crate) eval:
         fn(snapshot: &Snapshot<H>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) intern_output: fn(interner: &Interner, value: &(dyn Any + Send + Sync)) -> InternId,
+    pub(crate) store_out: fn(storage: &Storage, value: &(dyn Any + Send + Sync)) -> StorageId,
 }
 
 impl<H> QueryRegistry<H>
@@ -59,7 +59,7 @@ where
     {
         return Self {
             eval: eval::<H, Q>,
-            intern_output: intern_output::<Q::Out>,
+            store_out: store_output::<Q::Out>,
         };
 
         fn eval<H, Q>(
@@ -77,14 +77,14 @@ where
             Box::new(out)
         }
 
-        fn intern_output<T>(interner: &Interner, out: &(dyn Any + Send + Sync)) -> InternId
+        fn store_output<T>(storage: &Storage, out: &(dyn Any + Send + Sync)) -> StorageId
         where
             T: Clone + Eq + Hash + Send + Sync + 'static,
         {
             let Some(out) = out.downcast_ref::<T>() else {
                 panic_expected_different_type::<&T>()
             };
-            interner.intern(out)
+            storage.store(out)
         }
     }
 }
