@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use crate::event::ScopedEvent;
 use crate::intern::InternId;
 use crate::intern::Interner;
 use crate::memo::MemoId;
@@ -176,7 +177,7 @@ where
     where
         Q: Query,
     {
-        let _query_guard = self.global.event_handler.query_scope();
+        let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
         let query_id = self.global.registry.query_id::<Q>();
         let args_id = self.global.interner.intern(args);
         let memo_id = self.global.memos.memo_id(query_id, args_id);
@@ -222,7 +223,7 @@ where
         let args = self.global.interner.get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
-            let _eval_guard = self.global.event_handler.eval_scope();
+            let _eval_guard = self.global.event_handler.scoped_event(ScopedEvent::Eval);
             eval(self, args.as_ref())
         };
         let out = (intern_output)(&self.global.interner, out.as_ref());

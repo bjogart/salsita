@@ -1,36 +1,42 @@
-use crate::event::seal::EvalGuard;
-use crate::event::seal::QueryGuard;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
 use std::time::Instant;
 
+const VALUE_ALREADY_TAKEN: &str = "bug: guard payload already taken";
+
 pub trait Handler
 where
     Self: Sized,
 {
-    type Query;
+    type Payload;
 
-    type Eval;
-
-    fn query_scope(&self) -> QueryGuard<'_, Self, Self::Query> {
-        let value = self.begin_query();
-        QueryGuard::new(self, Some(value))
+    fn scoped_event(&self, event: ScopedEvent) -> ScopeGuard<'_, Self> {
+        ScopeGuard {
+            handler: self,
+            payload: Some(self.enter_scope(event)),
+        }
     }
 
-    fn begin_query(&self) -> Self::Query;
+    fn enter_scope(&self, event: ScopedEvent) -> Self::Payload;
 
-    fn exit_query(&self, guard: Self::Query);
+    fn exit_scope(&self, payload: Self::Payload);
+}
 
-    fn eval_scope(&self) -> EvalGuard<'_, Self, Self::Eval> {
-        let value = self.begin_eval();
-        EvalGuard::new(self, Some(value))
-    }
+#[derive(Clone, Copy, Debug)]
+pub enum ScopedEvent {
+    Query,
+    Eval,
+}
 
-    fn begin_eval(&self) -> Self::Eval;
-
-    fn end_eval(&self, guard: Self::Eval);
+#[derive(Debug)]
+pub struct ScopeGuard<'handler, H>
+where
+    H: Handler,
+{
+    handler: &'handler H,
+    payload: Option<H::Payload>,
 }
 
 #[derive(Debug, Default)]
@@ -47,26 +53,23 @@ pub struct AtomicDuration {
 }
 
 impl Handler for PerfHandler {
-    type Query = Instant;
+    type Payload = (ScopedEvent, Instant);
 
-    type Eval = Instant;
-
-    fn begin_query(&self) -> Self::Query {
-        self.query_count.fetch_add(1, Ordering::Relaxed);
-        Instant::now()
+    fn enter_scope(&self, event: ScopedEvent) -> Self::Payload {
+        match event {
+            ScopedEvent::Query => self.query_count.fetch_add(1, Ordering::Relaxed),
+            ScopedEvent::Eval => self.eval_count.fetch_add(1, Ordering::Relaxed),
+        };
+        (event, Instant::now())
     }
 
-    fn exit_query(&self, guard: Self::Query) {
-        self.query_time.add(guard.elapsed());
-    }
-
-    fn begin_eval(&self) -> Self::Eval {
-        self.eval_count.fetch_add(1, Ordering::Relaxed);
-        Instant::now()
-    }
-
-    fn end_eval(&self, guard: Self::Eval) {
-        self.eval_time.add(guard.elapsed());
+    fn exit_scope(&self, payload: Self::Payload) {
+        let (event, start) = payload;
+        let elapsed = start.elapsed();
+        match event {
+            ScopedEvent::Query => self.query_time.add(elapsed),
+            ScopedEvent::Eval => self.eval_time.add(elapsed),
+        }
     }
 }
 
@@ -106,17 +109,21 @@ impl PerfHandler {
 }
 
 impl Handler for () {
-    type Query = ();
+    type Payload = ();
 
-    type Eval = ();
+    fn enter_scope(&self, _: ScopedEvent) -> Self::Payload {}
 
-    fn begin_query(&self) -> Self::Query {}
+    fn exit_scope(&self, (): Self::Payload) {}
+}
 
-    fn exit_query(&self, (): Self::Query) {}
-
-    fn begin_eval(&self) -> Self::Eval {}
-
-    fn end_eval(&self, (): Self::Eval) {}
+impl<H> Drop for ScopeGuard<'_, H>
+where
+    H: Handler,
+{
+    fn drop(&mut self) {
+        self.handler
+            .exit_scope(self.payload.take().expect(VALUE_ALREADY_TAKEN));
+    }
 }
 
 impl AtomicDuration {
@@ -131,67 +138,5 @@ impl AtomicDuration {
 
     fn reset(&self) {
         self.ns.store(0, Ordering::Relaxed);
-    }
-}
-
-mod seal {
-    use crate::event;
-
-    const VALUE_ALREADY_TAKEN: &str = "bug: guard value already taken";
-
-    #[derive(Debug)]
-    pub struct QueryGuard<'handler, H, G>
-    where
-        H: event::Handler<Query = G>,
-    {
-        handler: &'handler H,
-        value: Option<G>,
-    }
-
-    #[derive(Debug)]
-    pub struct EvalGuard<'handler, H, G>
-    where
-        H: event::Handler<Eval = G>,
-    {
-        handler: &'handler H,
-        value: Option<G>,
-    }
-
-    impl<'handler, H, G> QueryGuard<'handler, H, G>
-    where
-        H: event::Handler<Query = G>,
-    {
-        pub const fn new(handler: &'handler H, value: Option<G>) -> Self {
-            Self { handler, value }
-        }
-    }
-
-    impl<H, G> Drop for QueryGuard<'_, H, G>
-    where
-        H: event::Handler<Query = G>,
-    {
-        fn drop(&mut self) {
-            self.handler
-                .exit_query(self.value.take().expect(VALUE_ALREADY_TAKEN));
-        }
-    }
-
-    impl<'handler, H, G> EvalGuard<'handler, H, G>
-    where
-        H: event::Handler<Eval = G>,
-    {
-        pub const fn new(handler: &'handler H, value: Option<G>) -> Self {
-            Self { handler, value }
-        }
-    }
-
-    impl<H, G> Drop for EvalGuard<'_, H, G>
-    where
-        H: event::Handler<Eval = G>,
-    {
-        fn drop(&mut self) {
-            self.handler
-                .end_eval(self.value.take().expect(VALUE_ALREADY_TAKEN));
-        }
     }
 }
