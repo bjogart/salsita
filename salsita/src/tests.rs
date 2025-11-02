@@ -1,7 +1,7 @@
 use crate::Db;
 use crate::Snapshot;
-use crate::metrics::Metrics;
-use crate::metrics::PerfMetrics;
+use crate::event;
+use crate::event::PerfHandler;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
@@ -14,7 +14,7 @@ use std::thread;
 
 #[test]
 fn db_starts_empty() {
-    assert_eq!(metrics_snapshot(&Db::default().snapshot()), (0, 0,));
+    assert_eq!(counts_snapshot(&Db::default().snapshot()), (0, 0,));
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn modifications_trigger_query_cancellation() {
 }
 
 fn init_queries(
-    db: &Db<PerfMetrics>,
+    db: &Db<PerfHandler>,
     price: InputId<BurritoPrice>,
     count: InputId<BurritoCount>,
     burrito_salsa: InputId<SalsaPerBurrito>,
@@ -174,7 +174,7 @@ fn init_queries(
 }
 
 fn init_inputs(
-    db: &mut Db<PerfMetrics>,
+    db: &mut Db<PerfHandler>,
 ) -> (
     InputId<BurritoPrice>,
     InputId<BurritoCount>,
@@ -187,7 +187,7 @@ fn init_inputs(
 }
 
 fn assert_queries(
-    db: &Db<PerfMetrics>,
+    db: &Db<PerfHandler>,
     price: InputId<BurritoPrice>,
     count: InputId<BurritoCount>,
     burrito_salsa: InputId<SalsaPerBurrito>,
@@ -227,7 +227,7 @@ fn assert_queries(
 }
 
 fn assert_query_delta<Q>(
-    db: &Db<PerfMetrics>,
+    db: &Db<PerfHandler>,
     args: &Q::Args,
     exp_out: &Q::Out,
     dq: usize,
@@ -237,15 +237,15 @@ fn assert_query_delta<Q>(
     Q::Out: Eq + Debug,
 {
     let snapshot = db.snapshot();
-    let (q_before, e_before) = metrics_snapshot(&snapshot);
+    let (q_before, e_before) = counts_snapshot(&snapshot);
     let out = snapshot.query::<Q>(args);
     assert_eq!(out.as_ref(), exp_out);
-    let (q_after, e_after) = metrics_snapshot(&snapshot);
+    let (q_after, e_after) = counts_snapshot(&snapshot);
     assert_eq!((q_after - q_before, e_after - e_before), (dq, de));
 }
 
-fn metrics_snapshot(snapshot: &Snapshot<PerfMetrics>) -> (usize, usize) {
-    let m = snapshot.metrics();
+fn counts_snapshot(snapshot: &Snapshot<PerfHandler>) -> (usize, usize) {
+    let m = snapshot.event_handler();
     (m.query_count(), m.eval_count())
 }
 
@@ -259,9 +259,9 @@ impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
     type Out = Option<usize>;
 
-    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
-        M: Metrics,
+        H: event::Handler,
     {
         Some(*snapshot.query::<BurritoPrice>(args) + 2)
     }
@@ -277,9 +277,9 @@ impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
-    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
-        M: Metrics,
+        H: event::Handler,
     {
         let (price, count) = args;
         Some(
@@ -294,9 +294,9 @@ impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
-    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
-        M: Metrics,
+        H: event::Handler,
     {
         Some((*snapshot.query::<TotalPrice>(args))? + 5)
     }
@@ -312,9 +312,9 @@ impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
-    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
-        M: Metrics,
+        H: event::Handler,
     {
         let (burrito_salsa, count) = args;
         Some(

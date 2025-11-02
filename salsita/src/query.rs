@@ -1,6 +1,6 @@
 use crate::Snapshot;
+use crate::event;
 use crate::memo::MemoId;
-use crate::metrics::Metrics;
 use core::cmp::Ordering;
 use core::fmt;
 use core::fmt::Debug;
@@ -13,9 +13,9 @@ pub trait Query: 'static {
     type Args: Clone + Eq + Hash + Send + Sync;
     type Out: Clone + Eq + Hash + Send + Sync;
 
-    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
-        M: Metrics;
+        H: event::Handler;
 }
 
 pub trait Input: Send + Sync + 'static {
@@ -34,9 +34,9 @@ where
 
     type Out = <Self as Input>::Value;
 
-    fn eval<M>(_: &Snapshot<M>, _: &Self::Args) -> Self::Out
+    fn eval<H>(_: &Snapshot<H>, _: &Self::Args) -> Self::Out
     where
-        M: Metrics,
+        H: event::Handler,
     {
         panic!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")
     }
