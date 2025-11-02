@@ -8,8 +8,8 @@ use crate::query::InputId;
 use crate::query::Query;
 use crate::registry::Ops;
 use crate::registry::QueryRegistry;
-use crate::storage::Storage;
-use crate::storage::StorageId;
+use crate::storage::DefaultStorage;
+use crate::storage::DefaultStorageId;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
@@ -54,7 +54,7 @@ struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
 struct GlobalState<H> {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
-    storage: Storage,
+    storage: DefaultStorage,
     memos: Memos,
     registry: QueryRegistry<H>,
     event_handler: H,
@@ -98,7 +98,7 @@ struct PendingCommit {
 
 #[must_use]
 struct PendingChange {
-    value_id: StorageId,
+    value_id: DefaultStorageId,
     deps: Option<Vec<MemoId>>,
 }
 
@@ -358,7 +358,7 @@ impl PendingCommit {
 }
 
 impl PendingChange {
-    const fn new(value_id: StorageId) -> Self {
+    const fn new(value_id: DefaultStorageId) -> Self {
         Self {
             value_id,
             deps: None,

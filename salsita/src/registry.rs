@@ -3,8 +3,8 @@ use crate::Snapshot;
 use crate::event;
 use crate::panic_expected_different_type;
 use crate::query::Query;
-use crate::storage::Storage;
-use crate::storage::StorageId;
+use crate::storage::DefaultStorage;
+use crate::storage::DefaultStorageId;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
@@ -20,7 +20,8 @@ pub(crate) struct QueryRegistry<H> {
 pub(crate) struct Ops<H> {
     pub(crate) eval:
         fn(snapshot: &Snapshot<H>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) store_out: fn(storage: &Storage, value: &(dyn Any + Send + Sync)) -> StorageId,
+    pub(crate) store_out:
+        fn(storage: &DefaultStorage, value: &(dyn Any + Send + Sync)) -> DefaultStorageId,
 }
 
 impl<H> QueryRegistry<H>
@@ -77,7 +78,10 @@ where
             Box::new(out)
         }
 
-        fn store_output<T>(storage: &Storage, out: &(dyn Any + Send + Sync)) -> StorageId
+        fn store_output<T>(
+            storage: &DefaultStorage,
+            out: &(dyn Any + Send + Sync),
+        ) -> DefaultStorageId
         where
             T: Clone + Eq + Hash + Send + Sync + 'static,
         {

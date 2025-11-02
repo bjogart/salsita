@@ -13,10 +13,10 @@ use std::sync::RwLock;
 const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Storage(RwLock<StorageInner>);
+pub(crate) struct DefaultStorage(RwLock<DefaultStorageInner>);
 
 #[derive(Debug, Default)]
-struct StorageInner {
+struct DefaultStorageInner {
     fingerprint_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
     values: Vec<Arc<dyn Any + Send + Sync>>,
@@ -26,28 +26,31 @@ type Fingerprint = u64;
 
 type FingerprintHasher = RandomState;
 
-type Bucket = Vec<StorageId>;
+type Bucket = Vec<DefaultStorageId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct StorageId(NonZeroUsize);
+pub(crate) struct DefaultStorageId(NonZeroUsize);
 
-impl Storage {
-    pub(crate) fn store_input_id<I>(&self, f: impl FnOnce(StorageId) -> InputId<I>) -> InputId<I>
+impl DefaultStorage {
+    pub(crate) fn store_input_id<I>(
+        &self,
+        f: impl FnOnce(DefaultStorageId) -> InputId<I>,
+    ) -> InputId<I>
     where
         I: Input,
     {
         let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
-        let input_id = f(StorageId::new(idx));
+        let input_id = f(DefaultStorageId::new(idx));
         self.store(&input_id);
         input_id
     }
 
-    pub(crate) fn store<T>(&self, value: &T) -> StorageId
+    pub(crate) fn store<T>(&self, value: &T) -> DefaultStorageId
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
         let mut inner = self.0.write().expect(INCONSISTENT_STATE);
-        let StorageInner {
+        let DefaultStorageInner {
             fingerprint_hasher,
             index,
             values,
@@ -73,7 +76,7 @@ impl Storage {
         bucket: &Bucket,
         values: &[Arc<dyn Any + Send + Sync>],
         value: &T,
-    ) -> Option<StorageId>
+    ) -> Option<DefaultStorageId>
     where
         T: Eq + 'static,
     {
@@ -91,17 +94,17 @@ impl Storage {
         bucket: &mut Bucket,
         values: &mut Vec<Arc<dyn Any + Send + Sync>>,
         value: &T,
-    ) -> StorageId
+    ) -> DefaultStorageId
     where
         T: Clone + Send + Sync + 'static,
     {
-        let id = StorageId::new(values.len());
+        let id = DefaultStorageId::new(values.len());
         values.push(Arc::new(value.clone()));
         bucket.push(id);
         id
     }
 
-    pub(crate) fn get(&self, id: StorageId) -> Arc<dyn Any + Send + Sync> {
+    pub(crate) fn get(&self, id: DefaultStorageId) -> Arc<dyn Any + Send + Sync> {
         Arc::clone(Self::get_ref(
             &self.0.read().expect(INCONSISTENT_STATE).values,
             id,
@@ -110,13 +113,13 @@ impl Storage {
 
     fn get_ref(
         values: &[Arc<dyn Any + Send + Sync>],
-        id: StorageId,
+        id: DefaultStorageId,
     ) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx()).expect(UNKNOWN_ID)
     }
 }
 
-impl StorageId {
+impl DefaultStorageId {
     const fn new(idx: usize) -> Self {
         Self(NonZeroUsize::new(idx + 1).expect("bug: storage ID overflow"))
     }
