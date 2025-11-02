@@ -132,7 +132,7 @@ use crate::macros::Tuple100;
 use core::fmt::Debug;
 use core::iter;
 use salsita::Db;
-use salsita::event::PerfMetrics;
+use salsita::event::PerfHandler;
 use salsita::query::Query;
 use std::thread;
 
@@ -1413,8 +1413,8 @@ fn bench_graph<
     const PARALLEL_SNAPSHOT_COUNT: usize,
     Sink,
 >(
-    alloc_inputs: impl Fn(&mut Db<PerfMetrics>) -> (Sink::Args, Sink::Out),
-    update_inputs: impl Fn(&mut Db<PerfMetrics>, &Sink::Args, bool) -> Sink::Out,
+    alloc_inputs: impl Fn(&mut Db<PerfHandler>) -> (Sink::Args, Sink::Out),
+    update_inputs: impl Fn(&mut Db<PerfHandler>, &Sink::Args, bool) -> Sink::Out,
 ) -> Vec<Scenario>
 where
     Sink: Query,
@@ -1522,8 +1522,8 @@ where
 
 fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     name: &'static str,
-    init: impl Copy + Fn(&mut Db<PerfMetrics>) -> Inp,
-    bench: impl Copy + Fn(&mut Db<PerfMetrics>, Inp),
+    init: impl Copy + Fn(&mut Db<PerfHandler>) -> Inp,
+    bench: impl Copy + Fn(&mut Db<PerfHandler>, Inp),
 ) -> Scenario {
     let (_, counts) = bench_iter(init, bench);
     for _ in 0..WARMUP_COUNT {
@@ -1542,8 +1542,8 @@ fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     };
 
     fn bench_iter<T>(
-        init: impl Fn(&mut Db<PerfMetrics>) -> T,
-        bench: impl Fn(&mut Db<PerfMetrics>, T),
+        init: impl Fn(&mut Db<PerfHandler>) -> T,
+        bench: impl Fn(&mut Db<PerfHandler>, T),
     ) -> (Timings, Counts) {
         let mut db = Db::default();
         let v = init(&mut db);
@@ -1555,7 +1555,7 @@ fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
 }
 
 impl Counts {
-    fn new(m: &PerfMetrics) -> Self {
+    fn new(m: &PerfHandler) -> Self {
         Self {
             query: m.query_count(),
             eval: m.eval_count(),
@@ -1564,7 +1564,7 @@ impl Counts {
 }
 
 impl Timings {
-    fn new(m: &PerfMetrics) -> Self {
+    fn new(m: &PerfHandler) -> Self {
         Self {
             query: m.query_time().as_nanos().try_into().unwrap_or(u64::MAX),
             eval: m.eval_time().as_nanos().try_into().unwrap_or(u64::MAX),

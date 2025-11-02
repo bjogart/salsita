@@ -34,7 +34,7 @@ where
 }
 
 #[derive(Debug, Default)]
-pub struct PerfMetrics {
+pub struct PerfHandler {
     query_time: AtomicDuration,
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
@@ -46,7 +46,7 @@ pub struct AtomicDuration {
     ns: AtomicU64,
 }
 
-impl Metrics for PerfMetrics {
+impl Metrics for PerfHandler {
     type Query = Instant;
 
     type Eval = Instant;
@@ -70,8 +70,8 @@ impl Metrics for PerfMetrics {
     }
 }
 
-impl PerfMetrics {
-    /// Reset runtime metrics.
+impl PerfHandler {
+    /// Reset metric accumulators.
     ///
     /// This function will reset counts and durations, but not global values,
     /// like number of memos allocated.

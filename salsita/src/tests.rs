@@ -1,7 +1,7 @@
 use crate::Db;
 use crate::Snapshot;
 use crate::event::Metrics;
-use crate::event::PerfMetrics;
+use crate::event::PerfHandler;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
@@ -156,7 +156,7 @@ fn modifications_trigger_query_cancellation() {
 }
 
 fn init_queries(
-    db: &Db<PerfMetrics>,
+    db: &Db<PerfHandler>,
     price: InputId<BurritoPrice>,
     count: InputId<BurritoCount>,
     burrito_salsa: InputId<SalsaPerBurrito>,
@@ -174,7 +174,7 @@ fn init_queries(
 }
 
 fn init_inputs(
-    db: &mut Db<PerfMetrics>,
+    db: &mut Db<PerfHandler>,
 ) -> (
     InputId<BurritoPrice>,
     InputId<BurritoCount>,
@@ -187,7 +187,7 @@ fn init_inputs(
 }
 
 fn assert_queries(
-    db: &Db<PerfMetrics>,
+    db: &Db<PerfHandler>,
     price: InputId<BurritoPrice>,
     count: InputId<BurritoCount>,
     burrito_salsa: InputId<SalsaPerBurrito>,
@@ -227,7 +227,7 @@ fn assert_queries(
 }
 
 fn assert_query_delta<Q>(
-    db: &Db<PerfMetrics>,
+    db: &Db<PerfHandler>,
     args: &Q::Args,
     exp_out: &Q::Out,
     dq: usize,
@@ -244,7 +244,7 @@ fn assert_query_delta<Q>(
     assert_eq!((q_after - q_before, e_after - e_before), (dq, de));
 }
 
-fn metrics_snapshot(snapshot: &Snapshot<PerfMetrics>) -> (usize, usize) {
+fn metrics_snapshot(snapshot: &Snapshot<PerfHandler>) -> (usize, usize) {
     let m = snapshot.metrics();
     (m.query_count(), m.eval_count())
 }
