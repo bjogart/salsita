@@ -3,7 +3,7 @@
 use core::hash::Hash;
 use core::marker::PhantomData;
 use salsita::Snapshot;
-use salsita::event::Metrics;
+use salsita::event;
 use salsita::query::Input;
 use salsita::query::Query;
 
@@ -25,9 +25,9 @@ macro_rules! impl_dep {
             type Args = $input<$($dep::Args),*>;
             type Out = O::Out;
 
-            fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+            fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
             where
-                M: Metrics,
+                H: event::Handler,
             {
                 let $input($($dep,)*) = args;
                 $(let $dep = snapshot.query::<$dep>($dep);)*
@@ -95,9 +95,9 @@ where
     type Args = D::Args;
     type Out = O::Out;
 
-    fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
-        M: Metrics,
+        H: event::Handler,
     {
         let d = snapshot.query::<D>(args).as_ref().clone();
         O::op(d)

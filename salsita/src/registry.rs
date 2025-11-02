@@ -1,6 +1,6 @@
 use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
-use crate::event::Metrics;
+use crate::event;
 use crate::intern::InternId;
 use crate::intern::Interner;
 use crate::panic_expected_different_type;
@@ -12,20 +12,20 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 #[derive(Debug, Default)]
-pub(crate) struct QueryRegistry<M> {
-    ops: RwLock<HashMap<TypeId, Ops<M>>>,
+pub(crate) struct QueryRegistry<H> {
+    ops: RwLock<HashMap<TypeId, Ops<H>>>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Ops<M> {
+pub(crate) struct Ops<H> {
     pub(crate) eval:
-        fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
+        fn(snapshot: &Snapshot<H>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
     pub(crate) intern_output: fn(interner: &Interner, value: &(dyn Any + Send + Sync)) -> InternId,
 }
 
-impl<M> QueryRegistry<M>
+impl<H> QueryRegistry<H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
     pub(crate) fn query_id<Q>(&self) -> TypeId
     where
@@ -40,7 +40,7 @@ where
         query_id
     }
 
-    pub(crate) fn get(&self, query_id: TypeId) -> Option<Ops<M>> {
+    pub(crate) fn get(&self, query_id: TypeId) -> Option<Ops<H>> {
         self.ops
             .read()
             .expect(INCONSISTENT_STATE)
@@ -49,25 +49,25 @@ where
     }
 }
 
-impl<M> Ops<M>
+impl<H> Ops<H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
     fn new<Q>() -> Self
     where
         Q: Query,
     {
         return Self {
-            eval: eval::<M, Q>,
+            eval: eval::<H, Q>,
             intern_output: intern_output::<Q::Out>,
         };
 
-        fn eval<M, Q>(
-            snapshot: &Snapshot<M>,
+        fn eval<H, Q>(
+            snapshot: &Snapshot<H>,
             args: &(dyn Any + Send + Sync),
         ) -> Box<dyn Any + Send + Sync>
         where
-            M: Metrics,
+            H: event::Handler,
             Q: Query,
         {
             let Some(args) = args.downcast_ref::<Q::Args>() else {
@@ -89,10 +89,10 @@ where
     }
 }
 
-impl<M> Clone for Ops<M> {
+impl<H> Clone for Ops<H> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<M> Copy for Ops<M> {}
+impl<H> Copy for Ops<H> {}

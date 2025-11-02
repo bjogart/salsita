@@ -6,7 +6,7 @@ use core::sync::atomic::Ordering;
 use core::time::Duration;
 use std::time::Instant;
 
-pub trait Metrics
+pub trait Handler
 where
     Self: Sized,
 {
@@ -46,7 +46,7 @@ pub struct AtomicDuration {
     ns: AtomicU64,
 }
 
-impl Metrics for PerfHandler {
+impl Handler for PerfHandler {
     type Query = Instant;
 
     type Eval = Instant;
@@ -105,7 +105,7 @@ impl PerfHandler {
     }
 }
 
-impl Metrics for () {
+impl Handler for () {
     type Query = ();
 
     type Eval = ();
@@ -135,62 +135,62 @@ impl AtomicDuration {
 }
 
 mod seal {
-    use crate::event::Metrics;
+    use crate::event;
 
     const VALUE_ALREADY_TAKEN: &str = "bug: guard value already taken";
 
     #[derive(Debug)]
-    pub struct QueryGuard<'metrics, M, G>
+    pub struct QueryGuard<'handler, H, G>
     where
-        M: Metrics<Query = G>,
+        H: event::Handler<Query = G>,
     {
-        metrics: &'metrics M,
+        handler: &'handler H,
         value: Option<G>,
     }
 
     #[derive(Debug)]
-    pub struct EvalGuard<'metrics, M, G>
+    pub struct EvalGuard<'handler, H, G>
     where
-        M: Metrics<Eval = G>,
+        H: event::Handler<Eval = G>,
     {
-        metrics: &'metrics M,
+        handler: &'handler H,
         value: Option<G>,
     }
 
-    impl<'metrics, M, G> QueryGuard<'metrics, M, G>
+    impl<'handler, H, G> QueryGuard<'handler, H, G>
     where
-        M: Metrics<Query = G>,
+        H: event::Handler<Query = G>,
     {
-        pub const fn new(metrics: &'metrics M, value: Option<G>) -> Self {
-            Self { metrics, value }
+        pub const fn new(handler: &'handler H, value: Option<G>) -> Self {
+            Self { handler, value }
         }
     }
 
-    impl<M, G> Drop for QueryGuard<'_, M, G>
+    impl<H, G> Drop for QueryGuard<'_, H, G>
     where
-        M: Metrics<Query = G>,
+        H: event::Handler<Query = G>,
     {
         fn drop(&mut self) {
-            self.metrics
+            self.handler
                 .exit_query(self.value.take().expect(VALUE_ALREADY_TAKEN));
         }
     }
 
-    impl<'metrics, M, G> EvalGuard<'metrics, M, G>
+    impl<'handler, H, G> EvalGuard<'handler, H, G>
     where
-        M: Metrics<Eval = G>,
+        H: event::Handler<Eval = G>,
     {
-        pub const fn new(metrics: &'metrics M, value: Option<G>) -> Self {
-            Self { metrics, value }
+        pub const fn new(handler: &'handler H, value: Option<G>) -> Self {
+            Self { handler, value }
         }
     }
 
-    impl<M, G> Drop for EvalGuard<'_, M, G>
+    impl<H, G> Drop for EvalGuard<'_, H, G>
     where
-        M: Metrics<Eval = G>,
+        H: event::Handler<Eval = G>,
     {
         fn drop(&mut self) {
-            self.metrics
+            self.handler
                 .end_eval(self.value.take().expect(VALUE_ALREADY_TAKEN));
         }
     }

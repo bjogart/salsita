@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use crate::event::Metrics;
 use crate::intern::InternId;
 use crate::intern::Interner;
 use crate::memo::MemoId;
@@ -32,8 +31,8 @@ mod tests;
 const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
 
 #[derive(Debug, Default)]
-pub struct Db<M = ()> {
-    global: Arc<GlobalState<M>>,
+pub struct Db<H = ()> {
+    global: Arc<GlobalState<H>>,
     /// Coordinates snapshots with `Arc<GlobalState>` as the counter.
     ///
     /// This field must drop after [`GlobalState`] to ensure [`Db::set_input`]
@@ -42,8 +41,8 @@ pub struct Db<M = ()> {
 }
 
 #[derive(Debug)]
-pub struct Snapshot<M> {
-    db: Db<M>,
+pub struct Snapshot<H> {
+    db: Db<H>,
     active_queries: RefCell<ActiveQueryStack>,
 }
 
@@ -51,13 +50,13 @@ pub struct Snapshot<M> {
 struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
 
 #[derive(Debug, Default)]
-struct GlobalState<M> {
+struct GlobalState<H> {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
     interner: Interner,
     memos: Memos,
-    registry: QueryRegistry<M>,
-    metrics: M,
+    registry: QueryRegistry<H>,
+    event_handler: H,
 }
 
 #[derive(Debug)]
@@ -75,11 +74,11 @@ struct ActiveQuery {
 }
 
 #[must_use]
-struct QueryUpdate<'snap, M>
+struct QueryUpdate<'snap, H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
-    snapshot: &'snap Snapshot<M>,
+    snapshot: &'snap Snapshot<H>,
     commit: PendingCommit,
 }
 
@@ -102,13 +101,13 @@ struct PendingChange {
     deps: Option<Vec<MemoId>>,
 }
 
-impl<M> Db<M>
+impl<H> Db<H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
     #[must_use]
-    pub fn metrics(&self) -> &M {
-        &self.global.metrics
+    pub fn event_handler(&self) -> &H {
+        &self.global.event_handler
     }
 
     pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
@@ -153,7 +152,7 @@ where
     }
 
     #[must_use]
-    pub fn snapshot(&self) -> Snapshot<M> {
+    pub fn snapshot(&self) -> Snapshot<H> {
         Snapshot {
             db: Self {
                 global: Arc::clone(&self.global),
@@ -169,15 +168,15 @@ where
     }
 }
 
-impl<M> Snapshot<M>
+impl<H> Snapshot<H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
     pub fn query<Q>(&self, args: &Q::Args) -> Arc<Q::Out>
     where
         Q: Query,
     {
-        let _query_guard = self.global.metrics.query_scope();
+        let _query_guard = self.global.event_handler.query_scope();
         let query_id = self.global.registry.query_id::<Q>();
         let args_id = self.global.interner.intern(args);
         let memo_id = self.global.memos.memo_id(query_id, args_id);
@@ -223,7 +222,7 @@ where
         let args = self.global.interner.get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
-            let _eval_guard = self.global.metrics.eval_scope();
+            let _eval_guard = self.global.event_handler.eval_scope();
             eval(self, args.as_ref())
         };
         let out = (intern_output)(&self.global.interner, out.as_ref());
@@ -247,7 +246,7 @@ where
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
-    fn install_query(&self, current_rev: Revision, memo_id: MemoId) -> QueryUpdate<'_, M> {
+    fn install_query(&self, current_rev: Revision, memo_id: MemoId) -> QueryUpdate<'_, H> {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
@@ -284,18 +283,18 @@ where
     }
 }
 
-impl<'snap, M> QueryUpdate<'snap, M>
+impl<'snap, H> QueryUpdate<'snap, H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
-    const fn new(snapshot: &'snap Snapshot<M>, commit: PendingCommit) -> Self {
+    const fn new(snapshot: &'snap Snapshot<H>, commit: PendingCommit) -> Self {
         Self { snapshot, commit }
     }
 }
 
-impl<M> Drop for QueryUpdate<'_, M>
+impl<H> Drop for QueryUpdate<'_, H>
 where
-    M: Metrics,
+    H: event::Handler,
 {
     fn drop(&mut self) {
         let Self { snapshot, commit } = self;
@@ -367,8 +366,8 @@ impl PendingChange {
     }
 }
 
-impl<M> Deref for Snapshot<M> {
-    type Target = Db<M>;
+impl<H> Deref for Snapshot<H> {
+    type Target = Db<H>;
 
     fn deref(&self) -> &Self::Target {
         &self.db
