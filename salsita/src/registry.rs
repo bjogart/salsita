@@ -5,6 +5,7 @@ use crate::panic_expected_different_type;
 use crate::query::Query;
 use crate::storage::DefaultStorage;
 use crate::storage::DefaultStorageId;
+use crate::storage::Storage as _;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;

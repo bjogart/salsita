@@ -10,6 +10,7 @@ use crate::registry::Ops;
 use crate::registry::QueryRegistry;
 use crate::storage::DefaultStorage;
 use crate::storage::DefaultStorageId;
+use crate::storage::Storage as _;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
@@ -25,7 +26,7 @@ pub mod event;
 pub mod memo;
 pub mod query;
 mod registry;
-mod storage;
+pub mod storage;
 #[cfg(test)]
 mod tests;
 

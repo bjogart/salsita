@@ -3,6 +3,7 @@ use crate::query::Input;
 use crate::query::InputId;
 use alloc::sync::Arc;
 use core::any::Any;
+use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
 use core::num::NonZeroUsize;
@@ -12,8 +13,23 @@ use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
 
+pub trait Storage {
+    type Id: Debug;
+    type Value;
+
+    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I>) -> InputId<I>
+    where
+        I: Input;
+
+    fn store<T>(&self, value: &T) -> Self::Id
+    where
+        T: Clone + Eq + Hash + Send + Sync + 'static;
+
+    fn get(&self, id: Self::Id) -> Self::Value;
+}
+
 #[derive(Debug, Default)]
-pub(crate) struct DefaultStorage(RwLock<DefaultStorageInner>);
+pub struct DefaultStorage(RwLock<DefaultStorageInner>);
 
 #[derive(Debug, Default)]
 struct DefaultStorageInner {
@@ -29,23 +45,24 @@ type FingerprintHasher = RandomState;
 type Bucket = Vec<DefaultStorageId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct DefaultStorageId(NonZeroUsize);
+pub struct DefaultStorageId(NonZeroUsize);
 
-impl DefaultStorage {
-    pub(crate) fn store_input_id<I>(
-        &self,
-        f: impl FnOnce(DefaultStorageId) -> InputId<I>,
-    ) -> InputId<I>
+impl Storage for DefaultStorage {
+    type Id = DefaultStorageId;
+
+    type Value = Arc<dyn Any + Send + Sync>;
+
+    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I>) -> InputId<I>
     where
         I: Input,
     {
         let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
-        let input_id = f(DefaultStorageId::new(idx));
+        let input_id = f(Self::Id::new(idx));
         self.store(&input_id);
         input_id
     }
 
-    pub(crate) fn store<T>(&self, value: &T) -> DefaultStorageId
+    fn store<T>(&self, value: &T) -> Self::Id
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
@@ -60,6 +77,15 @@ impl DefaultStorage {
             .unwrap_or_else(|| Self::insert_value(bucket, values, value))
     }
 
+    fn get(&self, id: Self::Id) -> Self::Value {
+        Arc::clone(Self::get_ref(
+            &self.0.read().expect(INCONSISTENT_STATE).values,
+            id,
+        ))
+    }
+}
+
+impl DefaultStorage {
     fn find_bucket<'index, T>(
         hash_builder: &FingerprintHasher,
         index: &'index mut HashMap<Fingerprint, Bucket>,
@@ -102,13 +128,6 @@ impl DefaultStorage {
         values.push(Arc::new(value.clone()));
         bucket.push(id);
         id
-    }
-
-    pub(crate) fn get(&self, id: DefaultStorageId) -> Arc<dyn Any + Send + Sync> {
-        Arc::clone(Self::get_ref(
-            &self.0.read().expect(INCONSISTENT_STATE).values,
-            id,
-        ))
     }
 
     fn get_ref(
