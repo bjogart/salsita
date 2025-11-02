@@ -10,13 +10,13 @@ use std::collections::HashMap;
 use std::hash::RandomState;
 use std::sync::RwLock;
 
-const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another database?)";
+const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Interner(RwLock<InternerInner>);
+pub(crate) struct Storage(RwLock<StorageInner>);
 
 #[derive(Debug, Default)]
-struct InternerInner {
+struct StorageInner {
     fingerprint_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
     values: Vec<Arc<dyn Any + Send + Sync>>,
@@ -26,28 +26,28 @@ type Fingerprint = u64;
 
 type FingerprintHasher = RandomState;
 
-type Bucket = Vec<InternId>;
+type Bucket = Vec<StorageId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct InternId(NonZeroUsize);
+pub(crate) struct StorageId(NonZeroUsize);
 
-impl Interner {
-    pub(crate) fn intern_input_id<I>(&self, f: impl FnOnce(InternId) -> InputId<I>) -> InputId<I>
+impl Storage {
+    pub(crate) fn store_input_id<I>(&self, f: impl FnOnce(StorageId) -> InputId<I>) -> InputId<I>
     where
         I: Input,
     {
         let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
-        let input_id = f(InternId::new(idx));
-        self.intern(&input_id);
+        let input_id = f(StorageId::new(idx));
+        self.store(&input_id);
         input_id
     }
 
-    pub(crate) fn intern<T>(&self, value: &T) -> InternId
+    pub(crate) fn store<T>(&self, value: &T) -> StorageId
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
         let mut inner = self.0.write().expect(INCONSISTENT_STATE);
-        let InternerInner {
+        let StorageInner {
             fingerprint_hasher,
             index,
             values,
@@ -73,7 +73,7 @@ impl Interner {
         bucket: &Bucket,
         values: &[Arc<dyn Any + Send + Sync>],
         value: &T,
-    ) -> Option<InternId>
+    ) -> Option<StorageId>
     where
         T: Eq + 'static,
     {
@@ -91,31 +91,34 @@ impl Interner {
         bucket: &mut Bucket,
         values: &mut Vec<Arc<dyn Any + Send + Sync>>,
         value: &T,
-    ) -> InternId
+    ) -> StorageId
     where
         T: Clone + Send + Sync + 'static,
     {
-        let id = InternId::new(values.len());
+        let id = StorageId::new(values.len());
         values.push(Arc::new(value.clone()));
         bucket.push(id);
         id
     }
 
-    pub(crate) fn get(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
+    pub(crate) fn get(&self, id: StorageId) -> Arc<dyn Any + Send + Sync> {
         Arc::clone(Self::get_ref(
             &self.0.read().expect(INCONSISTENT_STATE).values,
             id,
         ))
     }
 
-    fn get_ref(values: &[Arc<dyn Any + Send + Sync>], id: InternId) -> &Arc<dyn Any + Send + Sync> {
+    fn get_ref(
+        values: &[Arc<dyn Any + Send + Sync>],
+        id: StorageId,
+    ) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx()).expect(UNKNOWN_ID)
     }
 }
 
-impl InternId {
+impl StorageId {
     const fn new(idx: usize) -> Self {
-        Self(NonZeroUsize::new(idx + 1).expect("bug: interner ID overflow"))
+        Self(NonZeroUsize::new(idx + 1).expect("bug: storage ID overflow"))
     }
 
     const fn idx(self) -> usize {

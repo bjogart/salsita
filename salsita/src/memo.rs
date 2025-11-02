@@ -1,6 +1,6 @@
 use crate::INCONSISTENT_STATE;
 use crate::Revision;
-use crate::storage::InternId;
+use crate::storage::StorageId;
 use core::any::TypeId;
 use core::fmt::Debug;
 use core::hash::Hash;
@@ -20,7 +20,7 @@ struct MemosInner {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct MemoId {
     query_id: TypeId,
-    args_id: InternId,
+    args_id: StorageId,
 }
 
 #[derive(Debug)]
@@ -28,7 +28,7 @@ pub(crate) struct MemoEntry {
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
-    pub(crate) value_id: Option<InternId>,
+    pub(crate) value_id: Option<StorageId>,
 }
 
 impl Memos {
@@ -36,8 +36,8 @@ impl Memos {
         &self,
         rev: Revision,
         query_id: TypeId,
-        args_id: InternId,
-        value_id: InternId,
+        args_id: StorageId,
+        value_id: StorageId,
     ) -> MemoId {
         let memo_id = MemoId { query_id, args_id };
         let mut entry = MemoEntry::new();
@@ -52,7 +52,7 @@ impl Memos {
         memo_id
     }
 
-    pub(crate) fn memo_id(&self, query_id: TypeId, args_id: InternId) -> MemoId {
+    pub(crate) fn memo_id(&self, query_id: TypeId, args_id: StorageId) -> MemoId {
         let memo_id = MemoId { query_id, args_id };
         self.0
             .write()
@@ -104,7 +104,7 @@ impl MemoId {
         self.query_id
     }
 
-    pub(crate) const fn args(self) -> InternId {
+    pub(crate) const fn args(self) -> StorageId {
         self.args_id
     }
 }
