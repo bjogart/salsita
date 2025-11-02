@@ -132,7 +132,7 @@ use crate::macros::Tuple100;
 use core::fmt::Debug;
 use core::iter;
 use salsita::Db;
-use salsita::metrics::PerfMetrics;
+use salsita::event::PerfMetrics;
 use salsita::query::Query;
 use std::thread;
 

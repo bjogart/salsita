@@ -1,10 +1,10 @@
 extern crate alloc;
 
+use crate::event::Metrics;
 use crate::intern::InternId;
 use crate::intern::Interner;
 use crate::memo::MemoId;
 use crate::memo::Memos;
-use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
@@ -21,9 +21,9 @@ use core::sync::atomic::Ordering;
 use std::sync::Condvar;
 use std::sync::Mutex;
 
+pub mod event;
 mod intern;
 pub mod memo;
-pub mod metrics;
 pub mod query;
 mod registry;
 #[cfg(test)]

@@ -3,7 +3,7 @@
 use core::hash::Hash;
 use core::marker::PhantomData;
 use salsita::Snapshot;
-use salsita::metrics::Metrics;
+use salsita::event::Metrics;
 use salsita::query::Input;
 use salsita::query::Query;
 

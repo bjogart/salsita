@@ -1,6 +1,6 @@
 use crate::Snapshot;
+use crate::event::Metrics;
 use crate::memo::MemoId;
-use crate::metrics::Metrics;
 use core::cmp::Ordering;
 use core::fmt;
 use core::fmt::Debug;

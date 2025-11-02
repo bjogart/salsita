@@ -1,5 +1,5 @@
-use crate::metrics::seal::EvalGuard;
-use crate::metrics::seal::QueryGuard;
+use crate::event::seal::EvalGuard;
+use crate::event::seal::QueryGuard;
 use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
@@ -135,7 +135,7 @@ impl AtomicDuration {
 }
 
 mod seal {
-    use crate::metrics::Metrics;
+    use crate::event::Metrics;
 
     const VALUE_ALREADY_TAKEN: &str = "bug: guard value already taken";
 

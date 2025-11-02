@@ -1,7 +1,7 @@
 use crate::Db;
 use crate::Snapshot;
-use crate::metrics::Metrics;
-use crate::metrics::PerfMetrics;
+use crate::event::Metrics;
+use crate::event::PerfMetrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;

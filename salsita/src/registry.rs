@@ -1,8 +1,8 @@
 use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
+use crate::event::Metrics;
 use crate::intern::InternId;
 use crate::intern::Interner;
-use crate::metrics::Metrics;
 use crate::panic_expected_different_type;
 use crate::query::Query;
 use core::any::Any;
