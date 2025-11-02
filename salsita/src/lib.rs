@@ -8,6 +8,8 @@ use crate::metrics::Metrics;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
+use crate::registry::Ops;
+use crate::registry::QueryRegistry;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
@@ -24,6 +26,7 @@ mod intern;
 pub mod memo;
 pub mod metrics;
 pub mod query;
+mod registry;
 #[cfg(test)]
 mod tests;
 
@@ -53,7 +56,8 @@ struct GlobalState<M> {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
     interner: RwLock<Interner>,
-    memos: RwLock<Memos<M>>,
+    memos: RwLock<Memos>,
+    registry: RwLock<QueryRegistry<M>>,
     metrics: M,
 }
 
@@ -81,11 +85,8 @@ where
 }
 
 #[must_use]
-struct MemoUpdate<'memos, M>
-where
-    M: Metrics,
-{
-    memos: &'memos mut Memos<M>,
+struct MemoUpdate<'memos> {
+    memos: &'memos mut Memos,
     commit: PendingCommit,
 }
 
@@ -116,6 +117,12 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
+        let query_id = self
+            .global
+            .registry
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .query_id::<I>();
         let mut interner = self.global.interner.write().expect(INCONSISTENT_STATE);
         let value_id = interner.intern(value);
         interner.intern_input_id(|args_id| {
@@ -124,7 +131,7 @@ where
                 .memos
                 .write()
                 .expect(INCONSISTENT_STATE)
-                .new_input::<I>(rev, args_id, value_id);
+                .new_input(rev, query_id, args_id, value_id);
             InputId::from(memo_id)
         })
     }
@@ -156,7 +163,7 @@ where
         let mut commit = PendingCommit::new(current_rev, id.memo_id());
         commit.change = Some(PendingChange::new(value_id));
         let mut memos = global.memos.write().expect(INCONSISTENT_STATE);
-        let _update = MemoUpdate::new(&mut *memos, commit);
+        let _update = MemoUpdate::new(&mut memos, commit);
     }
 
     #[must_use]
@@ -185,6 +192,12 @@ where
         Q: Query,
     {
         let _query_guard = self.global.metrics.query_scope();
+        let query_id = self
+            .global
+            .registry
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .query_id::<Q>();
         let args_id = self
             .global
             .interner
@@ -196,7 +209,7 @@ where
             .memos
             .write()
             .expect(INCONSISTENT_STATE)
-            .memo_id::<Q>(args_id, || self.make_cancel_value_id::<Q>());
+            .memo_id(query_id, args_id, || self.make_cancel_value_id::<Q>());
         self.verify_memo(self.global.rev.get(), memo_id);
         if self.should_cancel()
             && let Some(cancel_value_id) = self
@@ -254,11 +267,16 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        let (eval, intern_output, memo_value_id) = {
-            let memos = self.global.memos.read().expect(INCONSISTENT_STATE);
-            let memo = memos.memo(memo_id);
-            (memo.eval, memo.intern_output, memo.value_id)
-        };
+        let Ops {
+            eval,
+            intern_output,
+        } = self
+            .global
+            .registry
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .get(memo_id.query_id())
+            .expect("bug: query not registered");
         let args = self
             .global
             .interner
@@ -274,6 +292,13 @@ where
             &mut self.global.interner.write().expect(INCONSISTENT_STATE),
             out.as_ref(),
         );
+        let memo_value_id = self
+            .global
+            .memos
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memo(memo_id)
+            .value_id;
         if let Some(prev) = memo_value_id
             && out == prev
         {
@@ -376,19 +401,13 @@ where
     }
 }
 
-impl<'memos, M> MemoUpdate<'memos, M>
-where
-    M: Metrics,
-{
-    const fn new(memos: &'memos mut Memos<M>, commit: PendingCommit) -> Self {
+impl<'memos> MemoUpdate<'memos> {
+    const fn new(memos: &'memos mut Memos, commit: PendingCommit) -> Self {
         Self { memos, commit }
     }
 }
 
-impl<M> Drop for MemoUpdate<'_, M>
-where
-    M: Metrics,
-{
+impl Drop for MemoUpdate<'_> {
     fn drop(&mut self) {
         let Self {
             memos,

@@ -1,12 +1,5 @@
 use crate::Revision;
-use crate::Snapshot;
 use crate::intern::InternId;
-use crate::intern::Interner;
-use crate::metrics::Metrics;
-use crate::panic_expected_different_type;
-use crate::query::Input;
-use crate::query::Query;
-use core::any::Any;
 use core::any::TypeId;
 use core::fmt::Debug;
 use core::hash::Hash;
@@ -15,22 +8,18 @@ use std::collections::HashMap;
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Memos<M> {
-    memos: HashMap<MemoId, MemoEntry<M>>,
+pub(crate) struct Memos {
+    memos: HashMap<MemoId, MemoEntry>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct MemoId {
-    query: TypeId,
+    query_id: TypeId,
     args_id: InternId,
 }
 
 #[derive(Debug)]
-pub(crate) struct MemoEntry<M> {
-    pub(crate) eval:
-        fn(snapshot: &Snapshot<M>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) intern_output:
-        fn(interner: &mut Interner, value: &(dyn Any + Send + Sync)) -> InternId,
+pub(crate) struct MemoEntry {
     pub(crate) deps: Vec<MemoId>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
@@ -38,22 +27,16 @@ pub(crate) struct MemoEntry<M> {
     pub(crate) cancel_value_id: Option<InternId>,
 }
 
-impl<M> Memos<M>
-where
-    M: Metrics,
-{
-    pub(crate) fn new_input<I>(
+impl Memos {
+    pub(crate) fn new_input(
         &mut self,
         rev: Revision,
+        query_id: TypeId,
         args_id: InternId,
         value_id: InternId,
-    ) -> MemoId
-    where
-        I: Input,
-    {
-        let query = TypeId::of::<I>();
-        let memo_id = MemoId { query, args_id };
-        let mut entry = MemoEntry::new::<I>(None);
+    ) -> MemoId {
+        let memo_id = MemoId { query_id, args_id };
+        let mut entry = MemoEntry::new(None);
         entry.value_id = Some(value_id);
         entry.last_verified = rev;
         entry.last_changed = rev;
@@ -61,77 +44,45 @@ where
         memo_id
     }
 
-    pub(crate) fn memo_id<Q>(
+    pub(crate) fn memo_id(
         &mut self,
+        query_id: TypeId,
         args_id: InternId,
         make_cancel_value_id: impl FnOnce() -> Option<InternId>,
-    ) -> MemoId
-    where
-        Q: Query,
-    {
-        let query = TypeId::of::<Q>();
-        let memo_id = MemoId { query, args_id };
+    ) -> MemoId {
+        let memo_id = MemoId { query_id, args_id };
         self.memos
             .entry(memo_id)
-            .or_insert_with(|| MemoEntry::new::<Q>(make_cancel_value_id()));
+            .or_insert_with(|| MemoEntry::new(make_cancel_value_id()));
         memo_id
     }
 
-    pub(crate) fn memo_mut(&mut self, id: MemoId) -> &mut MemoEntry<M> {
+    pub(crate) fn memo_mut(&mut self, id: MemoId) -> &mut MemoEntry {
         self.memos.get_mut(&id).expect(UNKNOWN_ID)
     }
 
-    pub(crate) fn memo(&self, id: MemoId) -> &MemoEntry<M> {
+    pub(crate) fn memo(&self, id: MemoId) -> &MemoEntry {
         self.memos.get(&id).expect(UNKNOWN_ID)
     }
 }
 
-impl<M> MemoEntry<M>
-where
-    M: Metrics,
-{
-    fn new<Q>(cancel_value_id: Option<InternId>) -> Self
-    where
-        Q: Query,
-    {
-        return Self {
-            eval: eval::<M, Q>,
-            intern_output: intern_output::<Q::Out>,
+impl MemoEntry {
+    const fn new(cancel_value_id: Option<InternId>) -> Self {
+        Self {
             deps: Vec::new(),
             last_verified: Revision::NEVER_VERIFIED,
             last_changed: Revision::NEVER_VERIFIED,
             value_id: None,
             cancel_value_id,
-        };
-
-        fn eval<M, Q>(
-            snapshot: &Snapshot<M>,
-            args: &(dyn Any + Send + Sync),
-        ) -> Box<dyn Any + Send + Sync>
-        where
-            M: Metrics,
-            Q: Query,
-        {
-            let Some(args) = args.downcast_ref::<Q::Args>() else {
-                panic_expected_different_type::<&Q::Args>()
-            };
-            let out = Q::eval(snapshot, args);
-            Box::new(out)
-        }
-
-        fn intern_output<T>(interner: &mut Interner, out: &(dyn Any + Send + Sync)) -> InternId
-        where
-            T: Clone + Eq + Hash + Send + Sync + 'static,
-        {
-            let Some(out) = out.downcast_ref::<T>() else {
-                panic_expected_different_type::<&T>()
-            };
-            interner.intern(out)
         }
     }
 }
 
 impl MemoId {
+    pub(crate) const fn query_id(self) -> TypeId {
+        self.query_id
+    }
+
     pub(crate) const fn args(self) -> InternId {
         self.args_id
     }
