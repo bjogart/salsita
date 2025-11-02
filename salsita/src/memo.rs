@@ -14,7 +14,7 @@ pub(crate) struct Memos(RwLock<MemosInner>);
 
 #[derive(Debug, Default)]
 struct MemosInner {
-    memos: HashMap<MemoId, MemoEntry>,
+    memos: HashMap<MemoId, RwLock<MemoEntry>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -48,7 +48,7 @@ impl Memos {
             .write()
             .expect(INCONSISTENT_STATE)
             .memos
-            .insert(memo_id, entry);
+            .insert(memo_id, RwLock::new(entry));
         memo_id
     }
 
@@ -59,28 +59,32 @@ impl Memos {
             .expect(INCONSISTENT_STATE)
             .memos
             .entry(memo_id)
-            .or_insert_with(MemoEntry::new);
+            .or_insert_with(|| RwLock::new(MemoEntry::new()));
         memo_id
     }
 
     pub(crate) fn memo_mut(&self, id: MemoId, f: impl FnOnce(&mut MemoEntry)) {
-        f(self
-            .0
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .memos
-            .get_mut(&id)
-            .expect(UNKNOWN_ID))
-    }
-
-    pub(crate) fn memo<T>(&self, id: MemoId, f: impl FnOnce(&MemoEntry) -> T) -> T {
-        f(self
+        f(&mut self
             .0
             .read()
             .expect(INCONSISTENT_STATE)
             .memos
             .get(&id)
-            .expect(UNKNOWN_ID))
+            .expect(UNKNOWN_ID)
+            .write()
+            .expect(INCONSISTENT_STATE))
+    }
+
+    pub(crate) fn memo<T>(&self, id: MemoId, f: impl FnOnce(&MemoEntry) -> T) -> T {
+        f(&self
+            .0
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .memos
+            .get(&id)
+            .expect(UNKNOWN_ID)
+            .read()
+            .expect(INCONSISTENT_STATE))
     }
 }
 
