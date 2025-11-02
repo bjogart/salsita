@@ -171,7 +171,7 @@ where
     }
 
     #[must_use]
-    pub fn should_cancel(&self) -> bool {
+    pub(crate) fn should_cancel(&self) -> bool {
         self.global.should_cancel.load(Ordering::Relaxed)
     }
 }
@@ -196,7 +196,7 @@ where
             .memos
             .write()
             .expect(INCONSISTENT_STATE)
-            .intern::<Q>(args_id, || self.make_cancel_value_id::<Q>());
+            .memo_id::<Q>(args_id, || self.make_cancel_value_id::<Q>());
         self.verify_memo(self.global.rev.get(), memo_id);
         if self.should_cancel()
             && let Some(cancel_value_id) = self
@@ -264,7 +264,7 @@ where
             .interner
             .read()
             .expect(INCONSISTENT_STATE)
-            .interned(memo_id.args());
+            .get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = self.global.metrics.eval_scope();
@@ -338,7 +338,7 @@ where
             .interner
             .read()
             .expect(INCONSISTENT_STATE)
-            .interned(value_id)
+            .get(value_id)
             .downcast::<Q::Out>()
         else {
             panic_expected_different_type::<Q::Out>()

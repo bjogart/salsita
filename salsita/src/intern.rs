@@ -11,18 +11,16 @@ const UNKNOWN_ID: &str = "bug: unknown intern ID (was this ID created by another
 
 #[derive(Debug, Default)]
 pub(crate) struct Interner {
-    print_hasher: FingerprintHasher,
+    fingerprint_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
     values: Vec<Arc<dyn Any + Send + Sync>>,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
-struct Fingerprint(u64);
+type Fingerprint = u64;
 
 type FingerprintHasher = RandomState;
 
-#[derive(Debug, Default)]
-struct Bucket(Vec<InternId>);
+type Bucket = Vec<InternId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub(crate) struct InternId {
@@ -47,7 +45,7 @@ impl Interner {
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
-        let bucket = Self::find_bucket(&self.print_hasher, &mut self.index, value);
+        let bucket = Self::find_bucket(&self.fingerprint_hasher, &mut self.index, value);
         match Self::find_bucket_entry::<T>(bucket, &self.values, value) {
             Some(id) => id,
             None => Self::insert_value(bucket, &mut self.values, value),
@@ -62,7 +60,7 @@ impl Interner {
     where
         T: Hash + 'static,
     {
-        let print = Fingerprint::new(hash_builder, value);
+        let print = hash_builder.hash_one(value);
         index.entry(print).or_default()
     }
 
@@ -74,8 +72,8 @@ impl Interner {
     where
         T: Eq + 'static,
     {
-        bucket.0.iter().find_map(|id| {
-            if let Some(stored) = Self::interned_ref(values, *id).downcast_ref::<T>()
+        bucket.iter().find_map(|id| {
+            if let Some(stored) = Self::get_ref(values, *id).downcast_ref::<T>()
                 && value == stored
             {
                 return Some(*id);
@@ -95,27 +93,15 @@ impl Interner {
         let idx = values.len();
         let id = InternId { idx };
         values.push(Arc::new(value.clone()));
-        bucket.0.push(id);
+        bucket.push(id);
         id
     }
 
-    pub(crate) fn interned(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
-        Arc::clone(Self::interned_ref(&self.values, id))
+    pub(crate) fn get(&self, id: InternId) -> Arc<dyn Any + Send + Sync> {
+        Arc::clone(Self::get_ref(&self.values, id))
     }
 
-    fn interned_ref(
-        values: &[Arc<dyn Any + Send + Sync>],
-        id: InternId,
-    ) -> &Arc<dyn Any + Send + Sync> {
+    fn get_ref(values: &[Arc<dyn Any + Send + Sync>], id: InternId) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx).expect(UNKNOWN_ID)
-    }
-}
-
-impl Fingerprint {
-    fn new<T>(hash_builder: &FingerprintHasher, value: &T) -> Self
-    where
-        T: Hash + 'static,
-    {
-        Self(hash_builder.hash_one(value))
     }
 }
