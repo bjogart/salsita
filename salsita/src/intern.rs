@@ -5,6 +5,7 @@ use alloc::sync::Arc;
 use core::any::Any;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
+use core::num::NonZeroUsize;
 use std::collections::HashMap;
 use std::hash::RandomState;
 use std::sync::RwLock;
@@ -28,9 +29,7 @@ type FingerprintHasher = RandomState;
 type Bucket = Vec<InternId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct InternId {
-    idx: usize,
-}
+pub(crate) struct InternId(NonZeroUsize);
 
 impl Interner {
     pub(crate) fn intern_input_id<I>(&self, f: impl FnOnce(InternId) -> InputId<I>) -> InputId<I>
@@ -38,7 +37,7 @@ impl Interner {
         I: Input,
     {
         let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
-        let input_id = f(InternId { idx });
+        let input_id = f(InternId::new(idx));
         self.intern(&input_id);
         input_id
     }
@@ -96,8 +95,7 @@ impl Interner {
     where
         T: Clone + Send + Sync + 'static,
     {
-        let idx = values.len();
-        let id = InternId { idx };
+        let id = InternId::new(values.len());
         values.push(Arc::new(value.clone()));
         bucket.push(id);
         id
@@ -111,6 +109,16 @@ impl Interner {
     }
 
     fn get_ref(values: &[Arc<dyn Any + Send + Sync>], id: InternId) -> &Arc<dyn Any + Send + Sync> {
-        values.get(id.idx).expect(UNKNOWN_ID)
+        values.get(id.idx()).expect(UNKNOWN_ID)
+    }
+}
+
+impl InternId {
+    const fn new(idx: usize) -> Self {
+        Self(NonZeroUsize::new(idx + 1).expect("bug: interner ID overflow"))
+    }
+
+    const fn idx(self) -> usize {
+        self.0.get() - 1
     }
 }
