@@ -180,35 +180,21 @@ where
         let _query_guard = self.global.metrics.query_scope();
         let query_id = self.global.registry.query_id::<Q>();
         let args_id = self.global.interner.intern(args);
-        let memo_id = self
-            .global
-            .memos
-            .memo_id(query_id, args_id, || self.make_cancel_value_id::<Q>());
+        let memo_id = self.global.memos.memo_id(query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
-        if self.should_cancel()
-            && let Some(cancel_value_id) =
-                self.global.memos.memo(memo_id, |memo| memo.cancel_value_id)
-        {
-            return self.interned_output::<Q>(cancel_value_id);
-        }
         self.memoized_value::<Q>(memo_id)
-    }
-
-    fn make_cancel_value_id<Q>(&self) -> Option<InternId>
-    where
-        Q: Query,
-    {
-        Q::canceled().map(|cancel_value| self.global.interner.intern(&cancel_value))
     }
 
     fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
-            let (last_verified, cancel_value_id, deps) = self.global.memos.memo(memo_id, |memo| {
-                let last_verified = memo.last_verified;
-                (last_verified, memo.cancel_value_id, memo.deps.clone())
-            });
-            if last_verified == current_rev || self.should_cancel() && cancel_value_id.is_some() {
+            let (last_verified, deps) = self
+                .global
+                .memos
+                .memo(memo_id, |memo| (memo.last_verified, memo.deps.clone()));
+            if last_verified == current_rev
+                || self.should_cancel() && last_verified > Revision::NEVER_VERIFIED
+            {
                 return;
             }
             (last_verified, deps)

@@ -33,10 +33,6 @@ macro_rules! impl_dep {
                 $(let $dep = snapshot.query::<$dep>($dep);)*
                 O::op($input($($dep.as_ref().clone()),*))
             }
-
-            fn canceled() -> Option<Self::Out> {
-                Some(Self::Out::default())
-            }
         }
     };
 }
@@ -105,10 +101,6 @@ where
     {
         let d = snapshot.query::<D>(args).as_ref().clone();
         O::op(d)
-    }
-
-    fn canceled() -> Option<Self::Out> {
-        Some(Self::Out::default())
     }
 }
 

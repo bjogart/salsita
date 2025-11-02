@@ -16,11 +16,6 @@ pub trait Query: 'static {
     fn eval<M>(snapshot: &Snapshot<M>, args: &Self::Args) -> Self::Out
     where
         M: Metrics;
-
-    #[must_use]
-    fn canceled() -> Option<Self::Out> {
-        None
-    }
 }
 
 pub trait Input: Send + Sync + 'static {

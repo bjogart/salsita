@@ -128,8 +128,12 @@ fn modifications_trigger_query_cancellation() {
             while !snapshot.should_cancel() {
                 thread::yield_now();
             }
-            // Calling the same query will now return a cancel sentinel.
-            assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), None);
+            // Calling the same query will immediately return the memoized
+            // value.
+            assert_eq!(
+                *snapshot.query::<BurritoPriceWithShipping>(&price),
+                Some(10)
+            );
         }
     });
     // Wait until the worker is ready.
@@ -141,6 +145,12 @@ fn modifications_trigger_query_cancellation() {
     // With the worker snapshot still alive, this call will: set the global
     // cancellation flag and block until the worker snapshot is dropped.
     db.set_input(price, &4);
+    // Now that the new value for `price` is set successfully, calling the same
+    // query will return an updated value.
+    assert_eq!(
+        *db.snapshot().query::<BurritoPriceWithShipping>(&price),
+        Some(6)
+    );
     // Join and unwrap the worker thread to propagate failed assertions.
     handle.join().unwrap();
 }
@@ -255,10 +265,6 @@ impl Query for BurritoPriceWithShipping {
     {
         Some(*snapshot.query::<BurritoPrice>(args) + 2)
     }
-
-    fn canceled() -> Option<Self::Out> {
-        Some(None)
-    }
 }
 
 struct BurritoCount;
@@ -281,10 +287,6 @@ impl Query for TotalPrice {
                 * *snapshot.query::<BurritoCount>(count),
         )
     }
-
-    fn canceled() -> Option<Self::Out> {
-        Some(None)
-    }
 }
 
 struct PriceWithVat;
@@ -297,10 +299,6 @@ impl Query for PriceWithVat {
         M: Metrics,
     {
         Some((*snapshot.query::<TotalPrice>(args))? + 5)
-    }
-
-    fn canceled() -> Option<Self::Out> {
-        Some(None)
     }
 }
 
@@ -323,9 +321,5 @@ impl Query for SalsaInOrder {
             *snapshot.query::<BurritoCount>(count)
                 * *snapshot.query::<SalsaPerBurrito>(burrito_salsa),
         )
-    }
-
-    fn canceled() -> Option<Self::Out> {
-        Some(None)
     }
 }
