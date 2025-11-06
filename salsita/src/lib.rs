@@ -33,7 +33,7 @@ mod tests;
 const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
 
 #[derive(Debug, Default)]
-pub struct Db<S, H>
+pub struct Db<S = DefaultStorage, H = ()>
 where
     S: Storage,
 {
