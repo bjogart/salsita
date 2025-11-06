@@ -10,7 +10,7 @@ use core::hash::Hash;
 use core::hash::Hasher;
 use core::marker::PhantomData;
 
-pub trait Query<S>
+pub trait Query<S = DefaultStorage>
 where
     Self: 'static,
     S: Storage,

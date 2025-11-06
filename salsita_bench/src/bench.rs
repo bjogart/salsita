@@ -1418,7 +1418,7 @@ fn bench_graph<
     update_inputs: impl Fn(&mut Db<DefaultStorage, PerfHandler>, &Sink::Args, bool) -> Sink::Out,
 ) -> Vec<Scenario>
 where
-    Sink: Query<DefaultStorage>,
+    Sink: Query,
     Sink::Out: Copy + Eq + Debug,
 {
     // Measurements for a full build scenario.

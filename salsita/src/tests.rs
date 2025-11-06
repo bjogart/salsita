@@ -237,7 +237,7 @@ fn assert_query_delta<Q>(
     dq: usize,
     de: usize,
 ) where
-    Q: Query<DefaultStorage>,
+    Q: Query,
     Q::Out: Eq + Debug,
 {
     let snapshot = db.snapshot();
@@ -259,7 +259,7 @@ impl Input for BurritoPrice {
 }
 
 struct BurritoPriceWithShipping;
-impl Query<DefaultStorage> for BurritoPriceWithShipping {
+impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
     type Out = Option<usize>;
 
@@ -277,7 +277,7 @@ impl Input for BurritoCount {
 }
 
 struct TotalPrice;
-impl Query<DefaultStorage> for TotalPrice {
+impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
@@ -294,7 +294,7 @@ impl Query<DefaultStorage> for TotalPrice {
 }
 
 struct PriceWithVat;
-impl Query<DefaultStorage> for PriceWithVat {
+impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
@@ -312,7 +312,7 @@ impl Input for SalsaPerBurrito {
 }
 
 struct SalsaInOrder;
-impl Query<DefaultStorage> for SalsaInOrder {
+impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
