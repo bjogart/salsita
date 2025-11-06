@@ -25,7 +25,7 @@ where
     S: Storage,
 {
     pub(crate) eval: Eval<S, H>,
-    pub(crate) store_out: StoreOut<S>,
+    pub(crate) store_output: StoreOut<S>,
 }
 
 type Eval<S, H> =
@@ -71,7 +71,7 @@ where
     {
         return Self {
             eval: eval::<Q, H, S>,
-            store_out: store_output::<S, Q::Out>,
+            store_output: store_output::<S, Q::Out>,
         };
 
         fn eval<Q, H, S>(snapshot: &Snapshot<S, H>, args: S::Value) -> Box<dyn Any + Send + Sync>

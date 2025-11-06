@@ -238,10 +238,7 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
-        let Ops {
-            eval,
-            store_out: store_output,
-        } = self
+        let Ops { eval, store_output } = self
             .global
             .registry
             .get(memo_id.query_id())
