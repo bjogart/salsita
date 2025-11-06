@@ -78,7 +78,7 @@ fn propagation_updates_transitive_dependents() {
 #[test]
 fn modifications_are_blocked_until_snapshots_drop() {
     let mut db: Db<DefaultStorage, ()> = Db::default();
-    let (sender, receiver) = mpsc::channel::<Snapshot<DefaultStorage, ()>>();
+    let (sender, receiver) = mpsc::channel::<Snapshot>();
     let price = db.new_input::<BurritoPrice>(&8);
     // Sanity check: on the main thread we observe the value we just created.
     assert_eq!(*db.snapshot().query::<BurritoPrice>(&price), 8);

@@ -8,6 +8,7 @@ use crate::query::InputId;
 use crate::query::Query;
 use crate::registry::Ops;
 use crate::registry::QueryRegistry;
+use crate::storage::DefaultStorage;
 use crate::storage::Downcast;
 use crate::storage::Storage;
 use alloc::sync::Arc;
@@ -45,7 +46,7 @@ where
 }
 
 #[derive(Debug)]
-pub struct Snapshot<S, H>
+pub struct Snapshot<S = DefaultStorage, H = ()>
 where
     S: Storage,
 {
