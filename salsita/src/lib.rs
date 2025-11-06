@@ -8,8 +8,9 @@ use crate::query::InputId;
 use crate::query::Query;
 use crate::registry::Ops;
 use crate::registry::QueryRegistry;
+use crate::storage::DefaultStorage;
+use crate::storage::Downcast;
 use crate::storage::Storage;
-use crate::storage::StorageId;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
@@ -25,15 +26,18 @@ pub mod event;
 pub mod memo;
 pub mod query;
 mod registry;
-mod storage;
+pub mod storage;
 #[cfg(test)]
 mod tests;
 
 const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
 
 #[derive(Debug, Default)]
-pub struct Db<H = ()> {
-    global: Arc<GlobalState<H>>,
+pub struct Db<S = DefaultStorage, H = ()>
+where
+    S: Storage,
+{
+    global: Arc<GlobalState<S, H>>,
     /// Coordinates snapshots with `Arc<GlobalState>` as the counter.
     ///
     /// This field must drop after [`GlobalState`] to ensure [`Db::set_input`]
@@ -42,21 +46,27 @@ pub struct Db<H = ()> {
 }
 
 #[derive(Debug)]
-pub struct Snapshot<H> {
-    db: Db<H>,
-    active_queries: RefCell<ActiveQueryStack>,
+pub struct Snapshot<S = DefaultStorage, H = ()>
+where
+    S: Storage,
+{
+    db: Db<S, H>,
+    active_queries: RefCell<ActiveQueryStack<S>>,
 }
 
 #[derive(Debug, Default)]
 struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
 
 #[derive(Debug, Default)]
-struct GlobalState<H> {
+struct GlobalState<S, H>
+where
+    S: Storage,
+{
     rev: GlobalRevision,
     should_cancel: AtomicBool,
-    storage: Storage,
-    memos: Memos,
-    registry: QueryRegistry<H>,
+    storage: S,
+    memos: Memos<S>,
+    registry: QueryRegistry<S, H>,
     event_handler: H,
 }
 
@@ -66,44 +76,60 @@ struct GlobalRevision(AtomicUsize);
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct Revision(NonZeroUsize);
 
-#[derive(Debug, Default)]
-struct ActiveQueryStack(Vec<ActiveQuery>);
+#[derive(Debug)]
+struct ActiveQueryStack<S>(Vec<ActiveQuery<S>>)
+where
+    S: Storage;
 
-#[derive(Debug, Default)]
-struct ActiveQuery {
-    deps: Vec<MemoId>,
+#[derive(Debug)]
+struct ActiveQuery<S>
+where
+    S: Storage,
+{
+    deps: Vec<MemoId<S>>,
 }
 
 #[must_use]
-struct QueryUpdate<'snap, H>
+struct QueryUpdate<'snap, S, H>
 where
+    S: Storage,
     H: event::Handler,
 {
-    snapshot: &'snap Snapshot<H>,
-    commit: PendingCommit,
+    snapshot: &'snap Snapshot<S, H>,
+    commit: PendingCommit<S>,
 }
 
 #[must_use]
-struct MemoUpdate<'memos> {
-    memos: &'memos Memos,
-    commit: PendingCommit,
-}
-
-#[must_use]
-struct PendingCommit {
-    current_rev: Revision,
-    memo_id: MemoId,
-    change: Option<PendingChange>,
-}
-
-#[must_use]
-struct PendingChange {
-    value_id: StorageId,
-    deps: Option<Vec<MemoId>>,
-}
-
-impl<H> Db<H>
+struct MemoUpdate<'memos, S>
 where
+    S: Storage,
+{
+    memos: &'memos Memos<S>,
+    commit: PendingCommit<S>,
+}
+
+#[must_use]
+struct PendingCommit<S>
+where
+    S: Storage,
+{
+    current_rev: Revision,
+    memo_id: MemoId<S>,
+    change: Option<PendingChange<S>>,
+}
+
+#[must_use]
+struct PendingChange<S>
+where
+    S: Storage,
+{
+    value_id: S::Id,
+    deps: Option<Vec<MemoId<S>>>,
+}
+
+impl<S, H> Db<S, H>
+where
+    S: Storage,
     H: event::Handler,
 {
     #[must_use]
@@ -111,7 +137,7 @@ where
         &self.global.event_handler
     }
 
-    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
+    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I, S>
     where
         I: Input,
     {
@@ -127,7 +153,7 @@ where
         })
     }
 
-    pub fn set_input<I>(&mut self, id: InputId<I>, value: &I::Value)
+    pub fn set_input<I>(&mut self, id: InputId<I, S>, value: &I::Value)
     where
         I: Input,
     {
@@ -153,7 +179,7 @@ where
     }
 
     #[must_use]
-    pub fn snapshot(&self) -> Snapshot<H> {
+    pub fn snapshot(&self) -> Snapshot<S, H> {
         Snapshot {
             db: Self {
                 global: Arc::clone(&self.global),
@@ -169,13 +195,14 @@ where
     }
 }
 
-impl<H> Snapshot<H>
+impl<S, H> Snapshot<S, H>
 where
+    S: Storage,
     H: event::Handler,
 {
-    pub fn query<Q>(&self, args: &Q::Args) -> Arc<Q::Out>
+    pub fn query<Q>(&self, args: &Q::Args) -> <S::Value as Downcast>::Downcast<Q::Out>
     where
-        Q: Query,
+        Q: Query<S>,
     {
         let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
         let query_id = self.global.registry.query_id::<Q>();
@@ -185,7 +212,7 @@ where
         self.memoized_value::<Q>(memo_id)
     }
 
-    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
+    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self
@@ -211,11 +238,8 @@ where
         self.eval_memo(current_rev, memo_id);
     }
 
-    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
-        let Ops {
-            eval,
-            store_out: store_output,
-        } = self
+    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
+        let Ops { eval, store_output } = self
             .global
             .registry
             .get(memo_id.query_id())
@@ -224,7 +248,7 @@ where
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = self.global.event_handler.scoped_event(ScopedEvent::Eval);
-            eval(self, args.as_ref())
+            eval(self, args)
         };
         let out = (store_output)(&self.global.storage, out.as_ref());
         if let Some(prev) = self.global.memos.memo(memo_id, |memo| memo.value_id)
@@ -239,7 +263,7 @@ where
         &self,
         current_rev: Revision,
         memo_last_verified: Revision,
-        dep: MemoId,
+        dep: MemoId<S>,
     ) -> bool {
         self.verify_memo(current_rev, dep);
         self.global
@@ -247,14 +271,14 @@ where
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
-    fn install_query(&self, current_rev: Revision, memo_id: MemoId) -> QueryUpdate<'_, H> {
+    fn install_query(&self, current_rev: Revision, memo_id: MemoId<S>) -> QueryUpdate<'_, S, H> {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
         QueryUpdate::new(self, PendingCommit::new(current_rev, memo_id))
     }
 
-    fn track_dep(&self, dep: MemoId) {
+    fn track_dep(&self, dep: MemoId<S>) {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         let caller = active_queries.last_mut();
@@ -263,37 +287,51 @@ where
         }
     }
 
-    fn memoized_value<Q>(&self, memo_id: MemoId) -> Arc<Q::Out>
+    fn memoized_value<Q>(&self, memo_id: MemoId<S>) -> <S::Value as Downcast>::Downcast<Q::Out>
     where
-        Q: Query,
+        Q: Query<S>,
     {
         let value_id = self.global.memos.memo(memo_id, |memo| {
             memo.value_id
                 .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
         });
-        let Ok(out) = self
-            .global
-            .storage
-            .get(value_id)
-            .downcast::<<Q as Query>::Out>()
-        else {
-            panic_expected_different_type::<<Q as Query>::Out>()
-        };
-        out
+        Downcast::downcast::<Q::Out>(self.global.storage.get(value_id))
     }
 }
 
-impl<'snap, H> QueryUpdate<'snap, H>
+impl<S> Default for ActiveQueryStack<S>
 where
+    S: Storage,
+{
+    fn default() -> Self {
+        Self(Vec::default())
+    }
+}
+
+impl<S> Default for ActiveQuery<S>
+where
+    S: Storage,
+{
+    fn default() -> Self {
+        Self {
+            deps: Vec::default(),
+        }
+    }
+}
+
+impl<'snap, S, H> QueryUpdate<'snap, S, H>
+where
+    S: Storage,
     H: event::Handler,
 {
-    const fn new(snapshot: &'snap Snapshot<H>, commit: PendingCommit) -> Self {
+    const fn new(snapshot: &'snap Snapshot<S, H>, commit: PendingCommit<S>) -> Self {
         Self { snapshot, commit }
     }
 }
 
-impl<H> Drop for QueryUpdate<'_, H>
+impl<S, H> Drop for QueryUpdate<'_, S, H>
 where
+    S: Storage,
     H: event::Handler,
 {
     fn drop(&mut self) {
@@ -309,13 +347,19 @@ where
     }
 }
 
-impl<'memos> MemoUpdate<'memos> {
-    const fn new(memos: &'memos Memos, commit: PendingCommit) -> Self {
+impl<'memos, S> MemoUpdate<'memos, S>
+where
+    S: Storage,
+{
+    const fn new(memos: &'memos Memos<S>, commit: PendingCommit<S>) -> Self {
         Self { memos, commit }
     }
 }
 
-impl Drop for MemoUpdate<'_> {
+impl<S> Drop for MemoUpdate<'_, S>
+where
+    S: Storage,
+{
     fn drop(&mut self) {
         let Self {
             memos,
@@ -339,8 +383,11 @@ impl Drop for MemoUpdate<'_> {
     }
 }
 
-impl PendingCommit {
-    const fn new(current_rev: Revision, memo_id: MemoId) -> Self {
+impl<S> PendingCommit<S>
+where
+    S: Storage,
+{
+    const fn new(current_rev: Revision, memo_id: MemoId<S>) -> Self {
         Self {
             current_rev,
             memo_id,
@@ -357,8 +404,11 @@ impl PendingCommit {
     }
 }
 
-impl PendingChange {
-    const fn new(value_id: StorageId) -> Self {
+impl<S> PendingChange<S>
+where
+    S: Storage,
+{
+    const fn new(value_id: S::Id) -> Self {
         Self {
             value_id,
             deps: None,
@@ -366,8 +416,11 @@ impl PendingChange {
     }
 }
 
-impl<H> Deref for Snapshot<H> {
-    type Target = Db<H>;
+impl<S, H> Deref for Snapshot<S, H>
+where
+    S: Storage,
+{
+    type Target = Db<S, H>;
 
     fn deref(&self) -> &Self::Target {
         &self.db

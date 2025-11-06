@@ -134,6 +134,7 @@ use core::iter;
 use salsita::Db;
 use salsita::event::PerfHandler;
 use salsita::query::Query;
+use salsita::storage::DefaultStorage;
 use std::thread;
 
 #[derive(serde::Serialize)]
@@ -1413,8 +1414,8 @@ fn bench_graph<
     const PARALLEL_SNAPSHOT_COUNT: usize,
     Sink,
 >(
-    alloc_inputs: impl Fn(&mut Db<PerfHandler>) -> (Sink::Args, Sink::Out),
-    update_inputs: impl Fn(&mut Db<PerfHandler>, &Sink::Args, bool) -> Sink::Out,
+    alloc_inputs: impl Fn(&mut Db<DefaultStorage, PerfHandler>) -> (Sink::Args, Sink::Out),
+    update_inputs: impl Fn(&mut Db<DefaultStorage, PerfHandler>, &Sink::Args, bool) -> Sink::Out,
 ) -> Vec<Scenario>
 where
     Sink: Query,
@@ -1522,8 +1523,8 @@ where
 
 fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     name: &'static str,
-    init: impl Copy + Fn(&mut Db<PerfHandler>) -> Inp,
-    bench: impl Copy + Fn(&mut Db<PerfHandler>, Inp),
+    init: impl Copy + Fn(&mut Db<DefaultStorage, PerfHandler>) -> Inp,
+    bench: impl Copy + Fn(&mut Db<DefaultStorage, PerfHandler>, Inp),
 ) -> Scenario {
     let (_, counts) = bench_iter(init, bench);
     for _ in 0..WARMUP_COUNT {
@@ -1542,8 +1543,8 @@ fn bench_scenario<const WARMUP_COUNT: usize, const N: usize, Inp>(
     };
 
     fn bench_iter<T>(
-        init: impl Fn(&mut Db<PerfHandler>) -> T,
-        bench: impl Fn(&mut Db<PerfHandler>, T),
+        init: impl Fn(&mut Db<DefaultStorage, PerfHandler>) -> T,
+        bench: impl Fn(&mut Db<DefaultStorage, PerfHandler>, T),
     ) -> (Timings, Counts) {
         let mut db = Db::default();
         let v = init(&mut db);

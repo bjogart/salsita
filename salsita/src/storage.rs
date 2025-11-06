@@ -1,8 +1,10 @@
 use crate::INCONSISTENT_STATE;
+use crate::panic_expected_different_type;
 use crate::query::Input;
 use crate::query::InputId;
 use alloc::sync::Arc;
 use core::any::Any;
+use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
 use core::num::NonZeroUsize;
@@ -12,11 +14,34 @@ use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
 
-#[derive(Debug, Default)]
-pub(crate) struct Storage(RwLock<StorageInner>);
+pub trait Storage: Default + 'static {
+    type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
+    type Value: Debug + Downcast;
+
+    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
+    where
+        I: Input;
+
+    fn store<T>(&self, value: &T) -> Self::Id
+    where
+        T: Clone + Eq + Hash + Send + Sync + 'static;
+
+    fn get(&self, id: Self::Id) -> Self::Value;
+}
+
+pub trait Downcast {
+    type Downcast<T>: AsRef<T>;
+
+    fn downcast<T>(self) -> Self::Downcast<T>
+    where
+        T: Send + Sync + 'static;
+}
 
 #[derive(Debug, Default)]
-struct StorageInner {
+pub struct DefaultStorage(RwLock<DefaultStorageInner>);
+
+#[derive(Debug, Default)]
+struct DefaultStorageInner {
     fingerprint_hasher: FingerprintHasher,
     index: HashMap<Fingerprint, Bucket>,
     values: Vec<Arc<dyn Any + Send + Sync>>,
@@ -26,28 +51,32 @@ type Fingerprint = u64;
 
 type FingerprintHasher = RandomState;
 
-type Bucket = Vec<StorageId>;
+type Bucket = Vec<DefaultStorageId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct StorageId(NonZeroUsize);
+pub struct DefaultStorageId(NonZeroUsize);
 
-impl Storage {
-    pub(crate) fn store_input_id<I>(&self, f: impl FnOnce(StorageId) -> InputId<I>) -> InputId<I>
+impl Storage for DefaultStorage {
+    type Id = DefaultStorageId;
+
+    type Value = Arc<dyn Any + Send + Sync>;
+
+    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
     where
         I: Input,
     {
         let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
-        let input_id = f(StorageId::new(idx));
+        let input_id = f(Self::Id::new(idx));
         self.store(&input_id);
         input_id
     }
 
-    pub(crate) fn store<T>(&self, value: &T) -> StorageId
+    fn store<T>(&self, value: &T) -> Self::Id
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
         let mut inner = self.0.write().expect(INCONSISTENT_STATE);
-        let StorageInner {
+        let DefaultStorageInner {
             fingerprint_hasher,
             index,
             values,
@@ -57,6 +86,15 @@ impl Storage {
             .unwrap_or_else(|| Self::insert_value(bucket, values, value))
     }
 
+    fn get(&self, id: Self::Id) -> Self::Value {
+        Arc::clone(Self::get_ref(
+            &self.0.read().expect(INCONSISTENT_STATE).values,
+            id,
+        ))
+    }
+}
+
+impl DefaultStorage {
     fn find_bucket<'index, T>(
         hash_builder: &FingerprintHasher,
         index: &'index mut HashMap<Fingerprint, Bucket>,
@@ -73,7 +111,7 @@ impl Storage {
         bucket: &Bucket,
         values: &[Arc<dyn Any + Send + Sync>],
         value: &T,
-    ) -> Option<StorageId>
+    ) -> Option<DefaultStorageId>
     where
         T: Eq + 'static,
     {
@@ -91,37 +129,42 @@ impl Storage {
         bucket: &mut Bucket,
         values: &mut Vec<Arc<dyn Any + Send + Sync>>,
         value: &T,
-    ) -> StorageId
+    ) -> DefaultStorageId
     where
         T: Clone + Send + Sync + 'static,
     {
-        let id = StorageId::new(values.len());
+        let id = DefaultStorageId::new(values.len());
         values.push(Arc::new(value.clone()));
         bucket.push(id);
         id
     }
 
-    pub(crate) fn get(&self, id: StorageId) -> Arc<dyn Any + Send + Sync> {
-        Arc::clone(Self::get_ref(
-            &self.0.read().expect(INCONSISTENT_STATE).values,
-            id,
-        ))
-    }
-
     fn get_ref(
         values: &[Arc<dyn Any + Send + Sync>],
-        id: StorageId,
+        id: DefaultStorageId,
     ) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx()).expect(UNKNOWN_ID)
     }
 }
 
-impl StorageId {
+impl DefaultStorageId {
     const fn new(idx: usize) -> Self {
         Self(NonZeroUsize::new(idx + 1).expect("bug: storage ID overflow"))
     }
 
     const fn idx(self) -> usize {
         self.0.get() - 1
+    }
+}
+
+impl Downcast for Arc<dyn Any + Send + Sync> {
+    type Downcast<T> = Arc<T>;
+
+    fn downcast<T>(self) -> Self::Downcast<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        self.downcast()
+            .unwrap_or_else(|_| panic_expected_different_type::<T>())
     }
 }
