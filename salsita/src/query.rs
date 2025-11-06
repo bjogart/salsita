@@ -1,6 +1,7 @@
 use crate::Snapshot;
 use crate::event;
 use crate::memo::MemoId;
+use crate::storage::DefaultStorage;
 use crate::storage::Storage;
 use core::fmt;
 use core::fmt::Debug;
@@ -26,7 +27,7 @@ pub trait Input: Send + Sync + 'static {
     type Value: Clone + Eq + Hash + Send + Sync;
 }
 
-pub struct InputId<I, S>(MemoId<S>, PhantomData<I>)
+pub struct InputId<I, S = DefaultStorage>(MemoId<S>, PhantomData<I>)
 where
     I: Input,
     S: Storage;
