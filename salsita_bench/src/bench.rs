@@ -134,6 +134,7 @@ use core::iter;
 use salsita::Db;
 use salsita::event::PerfHandler;
 use salsita::query::Query;
+use salsita::storage::DefaultStorage;
 use std::thread;
 
 #[derive(serde::Serialize)]
@@ -1417,7 +1418,7 @@ fn bench_graph<
     update_inputs: impl Fn(&mut Db<PerfHandler>, &Sink::Args, bool) -> Sink::Out,
 ) -> Vec<Scenario>
 where
-    Sink: Query,
+    Sink: Query<DefaultStorage>,
     Sink::Out: Copy + Eq + Debug,
 {
     // Measurements for a full build scenario.

@@ -5,6 +5,7 @@ use crate::event::PerfHandler;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
+use crate::storage::DefaultStorage;
 use core::fmt::Debug;
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -157,9 +158,9 @@ fn modifications_trigger_query_cancellation() {
 
 fn init_queries(
     db: &Db<PerfHandler>,
-    price: InputId<BurritoPrice>,
-    count: InputId<BurritoCount>,
-    burrito_salsa: InputId<SalsaPerBurrito>,
+    price: InputId<BurritoPrice, DefaultStorage>,
+    count: InputId<BurritoCount, DefaultStorage>,
+    burrito_salsa: InputId<SalsaPerBurrito, DefaultStorage>,
 ) {
     assert_queries(
         &db,
@@ -176,9 +177,9 @@ fn init_queries(
 fn init_inputs(
     db: &mut Db<PerfHandler>,
 ) -> (
-    InputId<BurritoPrice>,
-    InputId<BurritoCount>,
-    InputId<SalsaPerBurrito>,
+    InputId<BurritoPrice, DefaultStorage>,
+    InputId<BurritoCount, DefaultStorage>,
+    InputId<SalsaPerBurrito, DefaultStorage>,
 ) {
     let price = db.new_input::<BurritoPrice>(&8);
     let count = db.new_input::<BurritoCount>(&3);
@@ -188,9 +189,9 @@ fn init_inputs(
 
 fn assert_queries(
     db: &Db<PerfHandler>,
-    price: InputId<BurritoPrice>,
-    count: InputId<BurritoCount>,
-    burrito_salsa: InputId<SalsaPerBurrito>,
+    price: InputId<BurritoPrice, DefaultStorage>,
+    count: InputId<BurritoCount, DefaultStorage>,
+    burrito_salsa: InputId<SalsaPerBurrito, DefaultStorage>,
     price_w_shipping: (usize, usize, usize),
     total_price: (usize, usize, usize),
     price_with_vat: (usize, usize, usize),
@@ -233,7 +234,7 @@ fn assert_query_delta<Q>(
     dq: usize,
     de: usize,
 ) where
-    Q: Query,
+    Q: Query<DefaultStorage>,
     Q::Out: Eq + Debug,
 {
     let snapshot = db.snapshot();
@@ -255,8 +256,8 @@ impl Input for BurritoPrice {
 }
 
 struct BurritoPriceWithShipping;
-impl Query for BurritoPriceWithShipping {
-    type Args = InputId<BurritoPrice>;
+impl Query<DefaultStorage> for BurritoPriceWithShipping {
+    type Args = InputId<BurritoPrice, DefaultStorage>;
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
@@ -273,8 +274,11 @@ impl Input for BurritoCount {
 }
 
 struct TotalPrice;
-impl Query for TotalPrice {
-    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
+impl Query<DefaultStorage> for TotalPrice {
+    type Args = (
+        InputId<BurritoPrice, DefaultStorage>,
+        InputId<BurritoCount, DefaultStorage>,
+    );
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
@@ -290,8 +294,11 @@ impl Query for TotalPrice {
 }
 
 struct PriceWithVat;
-impl Query for PriceWithVat {
-    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
+impl Query<DefaultStorage> for PriceWithVat {
+    type Args = (
+        InputId<BurritoPrice, DefaultStorage>,
+        InputId<BurritoCount, DefaultStorage>,
+    );
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
@@ -308,8 +315,11 @@ impl Input for SalsaPerBurrito {
 }
 
 struct SalsaInOrder;
-impl Query for SalsaInOrder {
-    type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
+impl Query<DefaultStorage> for SalsaInOrder {
+    type Args = (
+        InputId<SalsaPerBurrito, DefaultStorage>,
+        InputId<BurritoCount, DefaultStorage>,
+    );
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out

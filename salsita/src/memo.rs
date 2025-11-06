@@ -1,44 +1,60 @@
 use crate::INCONSISTENT_STATE;
 use crate::Revision;
-use crate::storage::DefaultStorageId;
+use crate::storage::Storage;
 use core::any::TypeId;
+use core::fmt;
 use core::fmt::Debug;
+use core::fmt::Formatter;
 use core::hash::Hash;
+use core::hash::Hasher;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Memos(RwLock<MemosInner>);
+pub(crate) struct Memos<S>(RwLock<MemosInner<S>>)
+where
+    S: Storage;
 
 #[derive(Debug, Default)]
-struct MemosInner {
-    memos: HashMap<MemoId, RwLock<MemoEntry>>,
+struct MemosInner<S>
+where
+    S: Storage,
+{
+    memos: HashMap<MemoId<S>, RwLock<MemoEntry<S>>>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub(crate) struct MemoId {
+pub(crate) struct MemoId<S>
+where
+    S: Storage + ?Sized,
+{
     query_id: TypeId,
-    args_id: DefaultStorageId,
+    args_id: S::Id,
 }
 
 #[derive(Debug)]
-pub(crate) struct MemoEntry {
-    pub(crate) deps: Vec<MemoId>,
+pub(crate) struct MemoEntry<S>
+where
+    S: Storage,
+{
+    pub(crate) deps: Vec<MemoId<S>>,
     pub(crate) last_verified: Revision,
     pub(crate) last_changed: Revision,
-    pub(crate) value_id: Option<DefaultStorageId>,
+    pub(crate) value_id: Option<S::Id>,
 }
 
-impl Memos {
+impl<S> Memos<S>
+where
+    S: Storage,
+{
     pub(crate) fn new_input(
         &self,
         rev: Revision,
         query_id: TypeId,
-        args_id: DefaultStorageId,
-        value_id: DefaultStorageId,
-    ) -> MemoId {
+        args_id: S::Id,
+        value_id: S::Id,
+    ) -> MemoId<S> {
         let memo_id = MemoId { query_id, args_id };
         let mut entry = MemoEntry::new();
         entry.value_id = Some(value_id);
@@ -52,7 +68,7 @@ impl Memos {
         memo_id
     }
 
-    pub(crate) fn memo_id(&self, query_id: TypeId, args_id: DefaultStorageId) -> MemoId {
+    pub(crate) fn memo_id(&self, query_id: TypeId, args_id: S::Id) -> MemoId<S> {
         let memo_id = MemoId { query_id, args_id };
         self.0
             .write()
@@ -63,7 +79,7 @@ impl Memos {
         memo_id
     }
 
-    pub(crate) fn memo_mut(&self, id: MemoId, f: impl FnOnce(&mut MemoEntry)) {
+    pub(crate) fn memo_mut(&self, id: MemoId<S>, f: impl FnOnce(&mut MemoEntry<S>)) {
         f(&mut self
             .0
             .read()
@@ -75,7 +91,7 @@ impl Memos {
             .expect(INCONSISTENT_STATE))
     }
 
-    pub(crate) fn memo<T>(&self, id: MemoId, f: impl FnOnce(&MemoEntry) -> T) -> T {
+    pub(crate) fn memo<T>(&self, id: MemoId<S>, f: impl FnOnce(&MemoEntry<S>) -> T) -> T {
         f(&self
             .0
             .read()
@@ -88,7 +104,10 @@ impl Memos {
     }
 }
 
-impl MemoEntry {
+impl<S> MemoEntry<S>
+where
+    S: Storage,
+{
     const fn new() -> Self {
         Self {
             deps: Vec::new(),
@@ -99,12 +118,60 @@ impl MemoEntry {
     }
 }
 
-impl MemoId {
+impl<S> MemoId<S>
+where
+    S: Storage,
+{
     pub(crate) const fn query_id(self) -> TypeId {
         self.query_id
     }
 
-    pub(crate) const fn args(self) -> DefaultStorageId {
+    pub(crate) const fn args(self) -> S::Id {
         self.args_id
+    }
+}
+
+impl<S> Clone for MemoId<S>
+where
+    S: Storage,
+{
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S> Copy for MemoId<S> where S: Storage {}
+
+impl<S> PartialEq for MemoId<S>
+where
+    S: Storage,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.query_id == other.query_id && self.args_id == other.args_id
+    }
+}
+
+impl<S> Eq for MemoId<S> where S: Storage {}
+
+impl<S> Hash for MemoId<S>
+where
+    S: Storage,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.query_id.hash(state);
+        self.args_id.hash(state);
+    }
+}
+
+impl<S> Debug for MemoId<S>
+where
+    S: Storage,
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let Self { query_id, args_id } = self;
+        f.debug_struct("MemoId")
+            .field("query_id", query_id)
+            .field("args_id", args_id)
+            .finish()
     }
 }

@@ -1,7 +1,7 @@
 use crate::Snapshot;
 use crate::event;
 use crate::memo::MemoId;
-use core::cmp::Ordering;
+use crate::storage::Storage;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Formatter;
@@ -9,9 +9,13 @@ use core::hash::Hash;
 use core::hash::Hasher;
 use core::marker::PhantomData;
 
-pub trait Query: 'static {
-    type Args: Clone + Eq + Hash + Send + Sync;
-    type Out: Clone + Eq + Hash + Send + Sync;
+pub trait Query<S>
+where
+    Self: 'static,
+    S: Storage,
+{
+    type Args: Clone + Eq + Hash + Send + Sync + 'static;
+    type Out: Clone + Eq + Hash + Send + Sync + 'static;
 
     fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
     where
@@ -22,15 +26,17 @@ pub trait Input: Send + Sync + 'static {
     type Value: Clone + Eq + Hash + Send + Sync;
 }
 
-pub struct InputId<I>(MemoId, PhantomData<I>)
-where
-    I: Input;
-
-impl<I> Query for I
+pub struct InputId<I, S>(MemoId<S>, PhantomData<I>)
 where
     I: Input,
+    S: Storage + ?Sized;
+
+impl<I, S> Query<S> for I
+where
+    I: Input,
+    S: Storage,
 {
-    type Args = InputId<Self>;
+    type Args = InputId<Self, S>;
 
     type Out = <Self as Input>::Value;
 
@@ -42,38 +48,47 @@ where
     }
 }
 
-impl<I> InputId<I>
+impl<I, S> InputId<I, S>
 where
     I: Input,
+    S: Storage,
 {
-    pub(crate) const fn memo_id(self) -> MemoId {
+    pub(crate) const fn memo_id(self) -> MemoId<S> {
         self.0
     }
 }
 
-impl<I> From<MemoId> for InputId<I>
+impl<I, S> From<MemoId<S>> for InputId<I, S>
 where
     I: Input,
+    S: Storage,
 {
-    fn from(id: MemoId) -> Self {
+    fn from(id: MemoId<S>) -> Self {
         Self(id, PhantomData)
     }
 }
 
-impl<I> Clone for InputId<I>
+impl<I, S> Clone for InputId<I, S>
 where
     I: Input,
+    S: Storage,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<I> Copy for InputId<I> where I: Input {}
-
-impl<I> PartialEq for InputId<I>
+impl<I, S> Copy for InputId<I, S>
 where
     I: Input,
+    S: Storage,
+{
+}
+
+impl<I, S> PartialEq for InputId<I, S>
+where
+    I: Input,
+    S: Storage,
 {
     fn eq(&self, other: &Self) -> bool {
         let Self(self_id, self_marker) = self;
@@ -82,31 +97,17 @@ where
     }
 }
 
-impl<I> Eq for InputId<I> where I: Input {}
-
-impl<I> PartialOrd for InputId<I>
+impl<I, S> Eq for InputId<I, S>
 where
     I: Input,
+    S: Storage,
 {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
 }
 
-impl<I> Ord for InputId<I>
+impl<I, S> Hash for InputId<I, S>
 where
     I: Input,
-{
-    fn cmp(&self, other: &Self) -> Ordering {
-        let Self(self_id, self_marker) = self;
-        let Self(other_id, other_marker) = other;
-        self_id.cmp(other_id).then(self_marker.cmp(other_marker))
-    }
-}
-
-impl<I> Hash for InputId<I>
-where
-    I: Input,
+    S: Storage,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let Self(id, marker) = self;
@@ -115,15 +116,13 @@ where
     }
 }
 
-impl<I> Debug for InputId<I>
+impl<I, S> Debug for InputId<I, S>
 where
     I: Input,
+    S: Storage,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[expect(dead_code)]
-        #[derive(Debug)]
-        struct DbgInputId(MemoId);
-
-        DbgInputId(self.memo_id()).fmt(f)
+        let Self(memo_id, _marker) = self;
+        f.debug_tuple("InputId").field(&memo_id).finish()
     }
 }

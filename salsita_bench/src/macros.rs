@@ -6,6 +6,7 @@ use salsita::Snapshot;
 use salsita::event;
 use salsita::query::Input;
 use salsita::query::Query;
+use salsita::storage::DefaultStorage;
 
 pub(crate) trait Op: 'static {
     type Args: Clone + Eq + Hash + Send;
@@ -17,10 +18,10 @@ macro_rules! impl_dep {
     ($name:ident { input: $input:ident, deps: [$($dep:ident),*$(,)?]$(,)? }$(,)?) => {
         pub(crate) struct $name<O, $($dep,)*>(PhantomData<(O, $($dep),*)>);
 
-        impl<O, $($dep,)*> Query for $name<O, $($dep,)*>
+        impl<O, $($dep,)*> Query<DefaultStorage> for $name<O, $($dep,)*>
         where
             O: Op<Args = $input<$($dep::Out),*>>,
-            $($dep: Query,)*
+            $($dep: Query<DefaultStorage>,)*
         {
             type Args = $input<$($dep::Args),*>;
             type Out = O::Out;
@@ -87,10 +88,10 @@ macro_rules! impl_inp {
 
 pub(crate) struct Dep1<O, D>(PhantomData<(O, D)>);
 
-impl<O, D> Query for Dep1<O, D>
+impl<O, D> Query<DefaultStorage> for Dep1<O, D>
 where
     O: Op<Args = D::Out>,
-    D: Query,
+    D: Query<DefaultStorage>,
 {
     type Args = D::Args;
     type Out = O::Out;

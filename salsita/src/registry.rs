@@ -35,7 +35,7 @@ where
 {
     pub(crate) fn query_id<Q>(&self) -> TypeId
     where
-        Q: Query,
+        Q: Query<S>,
     {
         let query_id = TypeId::of::<Q>();
         self.ops
@@ -62,20 +62,21 @@ where
 {
     fn new<Q>() -> Self
     where
-        Q: Query,
+        Q: Query<S>,
     {
         return Self {
-            eval: eval::<H, Q>,
+            eval: eval::<Q, H, S>,
             store_out: store_output::<S, Q::Out>,
         };
 
-        fn eval<H, Q>(
+        fn eval<Q, H, S>(
             snapshot: &Snapshot<H>,
             args: &(dyn Any + Send + Sync),
         ) -> Box<dyn Any + Send + Sync>
         where
             H: event::Handler,
-            Q: Query,
+            Q: Query<S>,
+            S: Storage,
         {
             let Some(args) = args.downcast_ref::<Q::Args>() else {
                 panic_expected_different_type::<&Q::Args>()

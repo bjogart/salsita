@@ -13,11 +13,11 @@ use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
 
-pub trait Storage {
-    type Id: Debug;
+pub trait Storage: 'static {
+    type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
     type Value;
 
-    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I>) -> InputId<I>
+    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
     where
         I: Input;
 
@@ -52,7 +52,7 @@ impl Storage for DefaultStorage {
 
     type Value = Arc<dyn Any + Send + Sync>;
 
-    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I>) -> InputId<I>
+    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
     where
         I: Input,
     {

@@ -56,7 +56,7 @@ struct GlobalState<H> {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
     storage: DefaultStorage,
-    memos: Memos,
+    memos: Memos<DefaultStorage>,
     registry: QueryRegistry<DefaultStorage, H>,
     event_handler: H,
 }
@@ -72,7 +72,7 @@ struct ActiveQueryStack(Vec<ActiveQuery>);
 
 #[derive(Debug, Default)]
 struct ActiveQuery {
-    deps: Vec<MemoId>,
+    deps: Vec<MemoId<DefaultStorage>>,
 }
 
 #[must_use]
@@ -86,21 +86,21 @@ where
 
 #[must_use]
 struct MemoUpdate<'memos> {
-    memos: &'memos Memos,
+    memos: &'memos Memos<DefaultStorage>,
     commit: PendingCommit,
 }
 
 #[must_use]
 struct PendingCommit {
     current_rev: Revision,
-    memo_id: MemoId,
+    memo_id: MemoId<DefaultStorage>,
     change: Option<PendingChange>,
 }
 
 #[must_use]
 struct PendingChange {
     value_id: DefaultStorageId,
-    deps: Option<Vec<MemoId>>,
+    deps: Option<Vec<MemoId<DefaultStorage>>>,
 }
 
 impl<H> Db<H>
@@ -112,7 +112,7 @@ where
         &self.global.event_handler
     }
 
-    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
+    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I, DefaultStorage>
     where
         I: Input,
     {
@@ -128,7 +128,7 @@ where
         })
     }
 
-    pub fn set_input<I>(&mut self, id: InputId<I>, value: &I::Value)
+    pub fn set_input<I>(&mut self, id: InputId<I, DefaultStorage>, value: &I::Value)
     where
         I: Input,
     {
@@ -176,7 +176,7 @@ where
 {
     pub fn query<Q>(&self, args: &Q::Args) -> Arc<Q::Out>
     where
-        Q: Query,
+        Q: Query<DefaultStorage>,
     {
         let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
         let query_id = self.global.registry.query_id::<Q>();
@@ -186,7 +186,7 @@ where
         self.memoized_value::<Q>(memo_id)
     }
 
-    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId) {
+    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<DefaultStorage>) {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self
@@ -212,7 +212,7 @@ where
         self.eval_memo(current_rev, memo_id);
     }
 
-    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId) {
+    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<DefaultStorage>) {
         let Ops {
             eval,
             store_out: store_output,
@@ -240,7 +240,7 @@ where
         &self,
         current_rev: Revision,
         memo_last_verified: Revision,
-        dep: MemoId,
+        dep: MemoId<DefaultStorage>,
     ) -> bool {
         self.verify_memo(current_rev, dep);
         self.global
@@ -248,14 +248,18 @@ where
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
-    fn install_query(&self, current_rev: Revision, memo_id: MemoId) -> QueryUpdate<'_, H> {
+    fn install_query(
+        &self,
+        current_rev: Revision,
+        memo_id: MemoId<DefaultStorage>,
+    ) -> QueryUpdate<'_, H> {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
         QueryUpdate::new(self, PendingCommit::new(current_rev, memo_id))
     }
 
-    fn track_dep(&self, dep: MemoId) {
+    fn track_dep(&self, dep: MemoId<DefaultStorage>) {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         let caller = active_queries.last_mut();
@@ -264,21 +268,16 @@ where
         }
     }
 
-    fn memoized_value<Q>(&self, memo_id: MemoId) -> Arc<Q::Out>
+    fn memoized_value<Q>(&self, memo_id: MemoId<DefaultStorage>) -> Arc<Q::Out>
     where
-        Q: Query,
+        Q: Query<DefaultStorage>,
     {
         let value_id = self.global.memos.memo(memo_id, |memo| {
             memo.value_id
                 .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
         });
-        let Ok(out) = self
-            .global
-            .storage
-            .get(value_id)
-            .downcast::<<Q as Query>::Out>()
-        else {
-            panic_expected_different_type::<<Q as Query>::Out>()
+        let Ok(out) = self.global.storage.get(value_id).downcast::<Q::Out>() else {
+            panic_expected_different_type::<Q::Out>()
         };
         out
     }
@@ -311,7 +310,7 @@ where
 }
 
 impl<'memos> MemoUpdate<'memos> {
-    const fn new(memos: &'memos Memos, commit: PendingCommit) -> Self {
+    const fn new(memos: &'memos Memos<DefaultStorage>, commit: PendingCommit) -> Self {
         Self { memos, commit }
     }
 }
@@ -341,7 +340,7 @@ impl Drop for MemoUpdate<'_> {
 }
 
 impl PendingCommit {
-    const fn new(current_rev: Revision, memo_id: MemoId) -> Self {
+    const fn new(current_rev: Revision, memo_id: MemoId<DefaultStorage>) -> Self {
         Self {
             current_rev,
             memo_id,
