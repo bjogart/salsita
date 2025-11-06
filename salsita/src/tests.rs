@@ -161,9 +161,9 @@ fn modifications_trigger_query_cancellation() {
 
 fn init_queries(
     db: &Db<DefaultStorage, PerfHandler>,
-    price: InputId<BurritoPrice, DefaultStorage>,
-    count: InputId<BurritoCount, DefaultStorage>,
-    burrito_salsa: InputId<SalsaPerBurrito, DefaultStorage>,
+    price: InputId<BurritoPrice>,
+    count: InputId<BurritoCount>,
+    burrito_salsa: InputId<SalsaPerBurrito>,
 ) {
     assert_queries(
         &db,
@@ -180,9 +180,9 @@ fn init_queries(
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
-    InputId<BurritoPrice, DefaultStorage>,
-    InputId<BurritoCount, DefaultStorage>,
-    InputId<SalsaPerBurrito, DefaultStorage>,
+    InputId<BurritoPrice>,
+    InputId<BurritoCount>,
+    InputId<SalsaPerBurrito>,
 ) {
     let price = db.new_input::<BurritoPrice>(&8);
     let count = db.new_input::<BurritoCount>(&3);
@@ -192,9 +192,9 @@ fn init_inputs(
 
 fn assert_queries(
     db: &Db<DefaultStorage, PerfHandler>,
-    price: InputId<BurritoPrice, DefaultStorage>,
-    count: InputId<BurritoCount, DefaultStorage>,
-    burrito_salsa: InputId<SalsaPerBurrito, DefaultStorage>,
+    price: InputId<BurritoPrice>,
+    count: InputId<BurritoCount>,
+    burrito_salsa: InputId<SalsaPerBurrito>,
     price_w_shipping: (usize, usize, usize),
     total_price: (usize, usize, usize),
     price_with_vat: (usize, usize, usize),
@@ -260,7 +260,7 @@ impl Input for BurritoPrice {
 
 struct BurritoPriceWithShipping;
 impl Query<DefaultStorage> for BurritoPriceWithShipping {
-    type Args = InputId<BurritoPrice, DefaultStorage>;
+    type Args = InputId<BurritoPrice>;
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
@@ -278,10 +278,7 @@ impl Input for BurritoCount {
 
 struct TotalPrice;
 impl Query<DefaultStorage> for TotalPrice {
-    type Args = (
-        InputId<BurritoPrice, DefaultStorage>,
-        InputId<BurritoCount, DefaultStorage>,
-    );
+    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
@@ -298,10 +295,7 @@ impl Query<DefaultStorage> for TotalPrice {
 
 struct PriceWithVat;
 impl Query<DefaultStorage> for PriceWithVat {
-    type Args = (
-        InputId<BurritoPrice, DefaultStorage>,
-        InputId<BurritoCount, DefaultStorage>,
-    );
+    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
@@ -319,10 +313,7 @@ impl Input for SalsaPerBurrito {
 
 struct SalsaInOrder;
 impl Query<DefaultStorage> for SalsaInOrder {
-    type Args = (
-        InputId<SalsaPerBurrito, DefaultStorage>,
-        InputId<BurritoCount, DefaultStorage>,
-    );
+    type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
     fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
