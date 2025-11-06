@@ -15,19 +15,22 @@ use std::thread;
 
 #[test]
 fn db_starts_empty() {
-    assert_eq!(counts_snapshot(&Db::default().snapshot()), (0, 0,));
+    assert_eq!(
+        counts_snapshot(&Db::<DefaultStorage, PerfHandler>::default().snapshot()),
+        (0, 0,)
+    );
 }
 
 #[test]
 fn queries_are_memoized_after_first_call() {
-    let mut db = Db::default();
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
 }
 
 #[test]
 fn only_dependent_queries_recompute_on_input_change() {
-    let mut db = Db::default();
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
     let discount_price = db.new_input::<BurritoPrice>(&4);
@@ -45,7 +48,7 @@ fn only_dependent_queries_recompute_on_input_change() {
 
 #[test]
 fn unchanged_outputs_stop_propagation() {
-    let mut db = Db::default();
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
     db.set_input(price, &4);
@@ -64,7 +67,7 @@ fn unchanged_outputs_stop_propagation() {
 
 #[test]
 fn propagation_updates_transitive_dependents() {
-    let mut db = Db::default();
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
     assert_query_delta::<PriceWithVat>(&db, &(price, count), &Some(35), 1, 0);
@@ -74,8 +77,8 @@ fn propagation_updates_transitive_dependents() {
 
 #[test]
 fn modifications_are_blocked_until_snapshots_drop() {
-    let mut db: Db<()> = Db::default();
-    let (sender, receiver) = mpsc::channel::<Snapshot<()>>();
+    let mut db: Db<DefaultStorage, ()> = Db::default();
+    let (sender, receiver) = mpsc::channel::<Snapshot<DefaultStorage, ()>>();
     let price = db.new_input::<BurritoPrice>(&8);
     // Sanity check: on the main thread we observe the value we just created.
     assert_eq!(*db.snapshot().query::<BurritoPrice>(&price), 8);
@@ -104,7 +107,7 @@ fn modifications_are_blocked_until_snapshots_drop() {
 
 #[test]
 fn modifications_trigger_query_cancellation() {
-    let mut db: Db<()> = Db::default();
+    let mut db: Db<DefaultStorage, ()> = Db::default();
     let worker_ready = Arc::new((Mutex::new(false), Condvar::new()));
     let price = db.new_input::<BurritoPrice>(&8);
     // Spawn a worker thread that holds a live snapshot. While this snapshot
@@ -157,7 +160,7 @@ fn modifications_trigger_query_cancellation() {
 }
 
 fn init_queries(
-    db: &Db<PerfHandler>,
+    db: &Db<DefaultStorage, PerfHandler>,
     price: InputId<BurritoPrice, DefaultStorage>,
     count: InputId<BurritoCount, DefaultStorage>,
     burrito_salsa: InputId<SalsaPerBurrito, DefaultStorage>,
@@ -175,7 +178,7 @@ fn init_queries(
 }
 
 fn init_inputs(
-    db: &mut Db<PerfHandler>,
+    db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
     InputId<BurritoPrice, DefaultStorage>,
     InputId<BurritoCount, DefaultStorage>,
@@ -188,7 +191,7 @@ fn init_inputs(
 }
 
 fn assert_queries(
-    db: &Db<PerfHandler>,
+    db: &Db<DefaultStorage, PerfHandler>,
     price: InputId<BurritoPrice, DefaultStorage>,
     count: InputId<BurritoCount, DefaultStorage>,
     burrito_salsa: InputId<SalsaPerBurrito, DefaultStorage>,
@@ -228,7 +231,7 @@ fn assert_queries(
 }
 
 fn assert_query_delta<Q>(
-    db: &Db<PerfHandler>,
+    db: &Db<DefaultStorage, PerfHandler>,
     args: &Q::Args,
     exp_out: &Q::Out,
     dq: usize,
@@ -245,7 +248,7 @@ fn assert_query_delta<Q>(
     assert_eq!((q_after - q_before, e_after - e_before), (dq, de));
 }
 
-fn counts_snapshot(snapshot: &Snapshot<PerfHandler>) -> (usize, usize) {
+fn counts_snapshot(snapshot: &Snapshot<DefaultStorage, PerfHandler>) -> (usize, usize) {
     let m = snapshot.event_handler();
     (m.query_count(), m.eval_count())
 }
@@ -260,7 +263,7 @@ impl Query<DefaultStorage> for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice, DefaultStorage>;
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
     where
         H: event::Handler,
     {
@@ -281,7 +284,7 @@ impl Query<DefaultStorage> for TotalPrice {
     );
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
     where
         H: event::Handler,
     {
@@ -301,7 +304,7 @@ impl Query<DefaultStorage> for PriceWithVat {
     );
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
     where
         H: event::Handler,
     {
@@ -322,7 +325,7 @@ impl Query<DefaultStorage> for SalsaInOrder {
     );
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
     where
         H: event::Handler,
     {

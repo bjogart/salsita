@@ -3,6 +3,7 @@ use crate::Snapshot;
 use crate::event;
 use crate::panic_expected_different_type;
 use crate::query::Query;
+use crate::storage::Downcast as _;
 use crate::storage::Storage;
 use core::any::Any;
 use core::any::TypeId;
@@ -23,10 +24,14 @@ pub(crate) struct Ops<S, H>
 where
     S: Storage,
 {
-    pub(crate) eval:
-        fn(snapshot: &Snapshot<H>, args: &(dyn Any + Send + Sync)) -> Box<dyn Any + Send + Sync>,
-    pub(crate) store_out: fn(storage: &S, value: &(dyn Any + Send + Sync)) -> S::Id,
+    pub(crate) eval: Eval<S, H>,
+    pub(crate) store_out: StoreOut<S>,
 }
+
+type Eval<S, H> =
+    fn(snapshot: &Snapshot<S, H>, args: <S as Storage>::Value) -> Box<dyn Any + Send + Sync>;
+
+type StoreOut<S> = fn(storage: &S, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
 
 impl<S, H> QueryRegistry<S, H>
 where
@@ -69,19 +74,14 @@ where
             store_out: store_output::<S, Q::Out>,
         };
 
-        fn eval<Q, H, S>(
-            snapshot: &Snapshot<H>,
-            args: &(dyn Any + Send + Sync),
-        ) -> Box<dyn Any + Send + Sync>
+        fn eval<Q, H, S>(snapshot: &Snapshot<S, H>, args: S::Value) -> Box<dyn Any + Send + Sync>
         where
             H: event::Handler,
             Q: Query<S>,
             S: Storage,
         {
-            let Some(args) = args.downcast_ref::<Q::Args>() else {
-                panic_expected_different_type::<&Q::Args>()
-            };
-            let out = Q::eval(snapshot, args);
+            let args = args.downcast::<Q::Args>();
+            let out = Q::eval(snapshot, args.as_ref());
             Box::new(out)
         }
 

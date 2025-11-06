@@ -27,7 +27,7 @@ where
 
 pub(crate) struct MemoId<S>
 where
-    S: Storage + ?Sized,
+    S: Storage,
 {
     query_id: TypeId,
     args_id: S::Id,

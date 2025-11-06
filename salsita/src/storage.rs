@@ -1,4 +1,5 @@
 use crate::INCONSISTENT_STATE;
+use crate::panic_expected_different_type;
 use crate::query::Input;
 use crate::query::InputId;
 use alloc::sync::Arc;
@@ -13,9 +14,9 @@ use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
 
-pub trait Storage: 'static {
+pub trait Storage: Default + 'static {
     type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
-    type Value;
+    type Value: Debug + Downcast;
 
     fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
     where
@@ -26,6 +27,14 @@ pub trait Storage: 'static {
         T: Clone + Eq + Hash + Send + Sync + 'static;
 
     fn get(&self, id: Self::Id) -> Self::Value;
+}
+
+pub trait Downcast {
+    type Downcast<T>: AsRef<T>;
+
+    fn downcast<T>(self) -> Self::Downcast<T>
+    where
+        T: Send + Sync + 'static;
 }
 
 #[derive(Debug, Default)]
@@ -145,5 +154,17 @@ impl DefaultStorageId {
 
     const fn idx(self) -> usize {
         self.0.get() - 1
+    }
+}
+
+impl Downcast for Arc<dyn Any + Send + Sync> {
+    type Downcast<T> = Arc<T>;
+
+    fn downcast<T>(self) -> Self::Downcast<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        self.downcast()
+            .unwrap_or_else(|_| panic_expected_different_type::<T>())
     }
 }

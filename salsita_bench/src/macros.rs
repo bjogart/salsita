@@ -6,7 +6,7 @@ use salsita::Snapshot;
 use salsita::event;
 use salsita::query::Input;
 use salsita::query::Query;
-use salsita::storage::DefaultStorage;
+use salsita::storage::Storage;
 
 pub(crate) trait Op: 'static {
     type Args: Clone + Eq + Hash + Send;
@@ -18,15 +18,16 @@ macro_rules! impl_dep {
     ($name:ident { input: $input:ident, deps: [$($dep:ident),*$(,)?]$(,)? }$(,)?) => {
         pub(crate) struct $name<O, $($dep,)*>(PhantomData<(O, $($dep),*)>);
 
-        impl<O, $($dep,)*> Query<DefaultStorage> for $name<O, $($dep,)*>
+        impl<S, O, $($dep,)*> Query<S> for $name<O, $($dep,)*>
         where
+            S: Storage,
             O: Op<Args = $input<$($dep::Out),*>>,
-            $($dep: Query<DefaultStorage>,)*
+            $($dep: Query<S>,)*
         {
             type Args = $input<$($dep::Args),*>;
             type Out = O::Out;
 
-            fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
+            fn eval<H>(snapshot: &Snapshot<S,H>, args: &Self::Args) -> Self::Out
             where
                 H: event::Handler,
             {
@@ -88,15 +89,16 @@ macro_rules! impl_inp {
 
 pub(crate) struct Dep1<O, D>(PhantomData<(O, D)>);
 
-impl<O, D> Query<DefaultStorage> for Dep1<O, D>
+impl<S, O, D> Query<S> for Dep1<O, D>
 where
+    S: Storage,
     O: Op<Args = D::Out>,
-    D: Query<DefaultStorage>,
+    D: Query<S>,
 {
     type Args = D::Args;
     type Out = O::Out;
 
-    fn eval<H>(snapshot: &Snapshot<H>, args: &Self::Args) -> Self::Out
+    fn eval<H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
         H: event::Handler,
     {
