@@ -7,8 +7,8 @@ use crate::memo::Memos;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
-use crate::registry::Ops;
-use crate::registry::QueryRegistry;
+use crate::query_ops::QueryOps;
+use crate::query_ops::QueryOpsRegistry;
 use crate::storage::DefaultStorage;
 use crate::storage::Downcast;
 use crate::storage::Storage;
@@ -29,7 +29,7 @@ mod barrier;
 pub mod event;
 pub(crate) mod memo;
 pub mod query;
-mod registry;
+mod query_ops;
 pub mod storage;
 #[cfg(test)]
 mod tests;
@@ -66,7 +66,7 @@ where
     should_cancel: AtomicBool,
     storage: S,
     memos: Memos<S>,
-    registry: QueryRegistry<S, H>,
+    query_ops: QueryOpsRegistry<S, H>,
     event_handler: H,
 }
 
@@ -104,7 +104,7 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self.global.registry.query_id::<I>();
+        let query_id = self.global.query_ops.query_id::<I>();
         let value_id = self.global.storage.store(value);
         self.global.storage.store_input_id(|args_id| {
             let memo_id = self
@@ -157,7 +157,7 @@ where
         Q: Query<S>,
     {
         let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
-        let query_id = self.global.registry.query_id::<Q>();
+        let query_id = self.global.query_ops.query_id::<Q>();
         let args_id = self.global.storage.store(args);
         let memo_id = self.global.memos.memo_id(query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
@@ -191,9 +191,9 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
-        let Ops { eval, store_output } = self
+        let QueryOps { eval, store_output } = self
             .global
-            .registry
+            .query_ops
             .get(memo_id.query_id())
             .expect("bug: query not registered");
         let args = self.global.storage.get(memo_id.args());
