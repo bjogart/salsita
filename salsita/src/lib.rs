@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use crate::event::ScopedEvent;
+use crate::gate::WriteGate;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
@@ -19,10 +20,9 @@ use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
-use std::sync::Condvar;
-use std::sync::Mutex;
 
 pub mod event;
+mod gate;
 pub mod memo;
 pub mod query;
 mod registry;
@@ -38,11 +38,9 @@ where
     S: Storage,
 {
     global: Arc<GlobalState<S, H>>,
-    /// Coordinates snapshots with `Arc<GlobalState>` as the counter.
-    ///
-    /// This field must drop after [`GlobalState`] to ensure [`Db::set_input`]
-    /// is notified after the reference count is decremented.
-    sync: SnapshotSync,
+    /// This field must drop after `global` to prevent deadlocks; see
+    /// [`WriteGate`] for information.
+    gate: WriteGate,
 }
 
 #[derive(Debug)]
@@ -53,9 +51,6 @@ where
     db: Db<S, H>,
     active_queries: RefCell<ActiveQueryStack<S>>,
 }
-
-#[derive(Debug, Default)]
-struct SnapshotSync(Arc<(Mutex<()>, Condvar)>);
 
 #[derive(Debug, Default)]
 struct GlobalState<S, H>
@@ -158,24 +153,14 @@ where
         I: Input,
     {
         self.global.should_cancel.store(true, Ordering::Release);
-        let global = {
-            let SnapshotSync(sync) = &self.sync;
-            let (waiter, notifier) = Arc::as_ref(sync);
-            let mut guard = waiter.lock().expect(INCONSISTENT_STATE);
-            loop {
-                if let Some(global) = Arc::get_mut(&mut self.global) {
-                    break global;
-                }
-                guard = notifier.wait(guard).expect(INCONSISTENT_STATE);
-            }
-        };
-        global.should_cancel.store(false, Ordering::Release);
+        self.gate.wait_for_write_access(&mut self.global);
+        self.global.should_cancel.store(false, Ordering::Release);
 
-        let current_rev = global.rev.bump();
-        let value_id = global.storage.store(value);
+        let current_rev = self.global.rev.bump();
+        let value_id = self.global.storage.store(value);
         let mut commit = PendingCommit::new(current_rev, id.memo_id());
         commit.change = Some(PendingChange::new(value_id));
-        let _update = MemoUpdate::new(&global.memos, commit);
+        let _update = MemoUpdate::new(&self.global.memos, commit);
     }
 
     #[must_use]
@@ -183,7 +168,7 @@ where
         Snapshot {
             db: Self {
                 global: Arc::clone(&self.global),
-                sync: SnapshotSync(Arc::clone(&self.sync.0)),
+                gate: self.gate.clone(),
             },
             active_queries: RefCell::default(),
         }
@@ -424,14 +409,6 @@ where
 
     fn deref(&self) -> &Self::Target {
         &self.db
-    }
-}
-
-impl Drop for SnapshotSync {
-    fn drop(&mut self) {
-        let Self(sync) = self;
-        let (_, notifier) = Arc::as_ref(sync);
-        notifier.notify_all();
     }
 }
 
