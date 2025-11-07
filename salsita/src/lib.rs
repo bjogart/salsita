@@ -27,7 +27,7 @@ use core::sync::atomic::Ordering;
 
 pub mod event;
 mod gate;
-pub mod memo;
+pub(crate) mod memo;
 pub mod query;
 mod registry;
 pub mod storage;
