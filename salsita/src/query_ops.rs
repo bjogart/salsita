@@ -40,7 +40,7 @@ where
 {
     pub(crate) fn query_id<Q>(&self) -> TypeId
     where
-        Q: Query<S>,
+        Q: Query,
     {
         let query_id = TypeId::of::<Q>();
         self.ops
@@ -67,7 +67,7 @@ where
 {
     fn new<Q>() -> Self
     where
-        Q: Query<S>,
+        Q: Query,
     {
         return Self {
             eval: eval::<Q, H, S>,
@@ -77,7 +77,7 @@ where
         fn eval<Q, H, S>(snapshot: &Snapshot<S, H>, args: S::Handle) -> Box<dyn Any + Send + Sync>
         where
             H: event::Handler,
-            Q: Query<S>,
+            Q: Query,
             S: Storage,
         {
             let args = args.downcast::<Q::Args>();

@@ -154,7 +154,7 @@ where
 {
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
-        Q: Query<S>,
+        Q: Query,
     {
         let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
         let query_id = self.global.query_ops.query_id::<Q>();
@@ -241,7 +241,7 @@ where
 
     fn memoized_value<Q>(&self, memo_id: MemoId<S>) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
-        Q: Query<S>,
+        Q: Query,
     {
         let value_id = self.global.memos.memo(memo_id, |memo| {
             memo.value_id
