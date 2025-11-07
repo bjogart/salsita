@@ -14,6 +14,8 @@ where
 {
     type Payload;
 
+    fn event(&self, event: Event);
+
     fn scoped_event(&self, event: ScopedEvent) -> ScopeGuard<'_, Self> {
         ScopeGuard {
             handler: self,
@@ -24,6 +26,17 @@ where
     fn enter_scope(&self, event: ScopedEvent) -> Self::Payload;
 
     fn exit_scope(&self, payload: Self::Payload);
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Event {
+    pub thread_id: ThreadId,
+    pub kind: EventKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum EventKind {
+    StoreValue(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -53,6 +66,7 @@ pub struct PerfHandler {
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
+    stored_bytes: AtomicUsize,
 }
 
 #[derive(Debug, Default)]
@@ -62,6 +76,12 @@ pub struct AtomicDuration {
 
 impl Handler for PerfHandler {
     type Payload = (ScopedEventKind, Instant);
+
+    fn event(&self, event: Event) {
+        match event.kind {
+            EventKind::StoreValue(bytes) => self.stored_bytes.fetch_add(bytes, Ordering::Relaxed),
+        };
+    }
 
     fn enter_scope(&self, event: ScopedEvent) -> Self::Payload {
         match event.kind {
@@ -92,11 +112,13 @@ impl PerfHandler {
             eval_time,
             query_count,
             eval_count,
+            stored_bytes,
         } = self;
         query_time.reset();
         eval_time.reset();
         query_count.store(0, Ordering::Relaxed);
         eval_count.store(0, Ordering::Relaxed);
+        stored_bytes.store(0, Ordering::Relaxed);
     }
 
     pub fn query_time(&self) -> Duration {
@@ -114,14 +136,29 @@ impl PerfHandler {
     pub fn eval_count(&self) -> usize {
         self.eval_count.load(Ordering::Relaxed)
     }
+
+    pub fn stored_bytes(&self) -> usize {
+        self.stored_bytes.load(Ordering::Relaxed)
+    }
 }
 
 impl Handler for () {
     type Payload = ();
 
+    fn event(&self, _: Event) {}
+
     fn enter_scope(&self, _: ScopedEvent) -> Self::Payload {}
 
     fn exit_scope(&self, (): Self::Payload) {}
+}
+
+impl Event {
+    pub(crate) fn new(kind: EventKind) -> Self {
+        Self {
+            thread_id: thread::current().id(),
+            kind,
+        }
+    }
 }
 
 impl ScopedEvent {

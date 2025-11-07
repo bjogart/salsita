@@ -25,13 +25,14 @@ where
     S: Storage,
 {
     pub(crate) eval: Eval<S, H>,
-    pub(crate) store_output: StoreOut<S>,
+    pub(crate) store_output: StoreOut<S, H>,
 }
 
 type Eval<S, H> =
     fn(snapshot: &Snapshot<S, H>, args: <S as Storage>::Handle) -> Box<dyn Any + Send + Sync>;
 
-type StoreOut<S> = fn(storage: &S, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
+type StoreOut<S, H> =
+    fn(storage: &S, handler: &H, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
 
 impl<S, H> QueryOpsRegistry<S, H>
 where
@@ -70,30 +71,31 @@ where
         Q: Query,
     {
         return Self {
-            eval: eval::<Q, H, S>,
-            store_output: store_output::<S, Q::Out>,
+            eval: eval::<S, H, Q>,
+            store_output: store_output::<S, H, Q::Out>,
         };
 
-        fn eval<Q, H, S>(snapshot: &Snapshot<S, H>, args: S::Handle) -> Box<dyn Any + Send + Sync>
+        fn eval<S, H, Q>(snapshot: &Snapshot<S, H>, args: S::Handle) -> Box<dyn Any + Send + Sync>
         where
+            S: Storage,
             H: event::Handler,
             Q: Query,
-            S: Storage,
         {
             let args = args.downcast::<Q::Args>();
             let out = Q::eval(snapshot, &args);
             Box::new(out)
         }
 
-        fn store_output<S, T>(storage: &S, out: &(dyn Any + Send + Sync)) -> S::Id
+        fn store_output<S, H, T>(storage: &S, handler: &H, out: &(dyn Any + Send + Sync)) -> S::Id
         where
             S: Storage,
+            H: event::Handler,
             T: Clone + Eq + Hash + Send + Sync + 'static,
         {
             let Some(out) = out.downcast_ref::<T>() else {
                 panic_expected_different_type::<&T>()
             };
-            storage.store(out)
+            storage.store(handler, out)
         }
     }
 }
