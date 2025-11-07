@@ -1,3 +1,4 @@
+use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::event;
 use crate::memo::MemoId;
@@ -9,6 +10,8 @@ use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
 use core::marker::PhantomData;
+use core::num::NonZeroUsize;
+use std::sync::RwLock;
 
 pub trait Query<S = DefaultStorage>
 where
@@ -27,17 +30,21 @@ pub trait Input: Send + Sync + 'static {
     type Value: Clone + Eq + Hash + Send + Sync;
 }
 
-pub struct InputId<I, S = DefaultStorage>(MemoId<S>, PhantomData<I>)
+#[derive(Debug, Default)]
+pub(crate) struct InputRegistry<S>(RwLock<Vec<MemoId<S>>>)
 where
-    I: Input,
     S: Storage;
+
+pub struct InputId<I>(NonZeroUsize, PhantomData<I>)
+where
+    I: Input;
 
 impl<I, S> Query<S> for I
 where
     I: Input,
     S: Storage,
 {
-    type Args = InputId<Self, S>;
+    type Args = InputId<Self>;
 
     type Out = <Self as Input>::Value;
 
@@ -49,47 +56,53 @@ where
     }
 }
 
-impl<I, S> InputId<I, S>
+impl<S> InputRegistry<S>
 where
-    I: Input,
     S: Storage,
 {
-    pub(crate) const fn memo_id(self) -> MemoId<S> {
-        self.0
+    pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I>
+    where
+        I: Input,
+    {
+        let mut inputs = self.0.write().expect(INCONSISTENT_STATE);
+        let idx = inputs.len();
+        let input_id = InputId(
+            NonZeroUsize::new(idx + 1).expect("bug: input ID overflow"),
+            PhantomData,
+        );
+        let memo_id = f(input_id);
+        inputs.push(memo_id);
+        input_id
+    }
+
+    pub(crate) fn memo_id<I>(&self, input_id: InputId<I>) -> MemoId<S>
+    where
+        I: Input,
+    {
+        let idx = input_id.0.get() - 1;
+        *self
+            .0
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .get(idx)
+            .expect("bug: unknown input ID (was this ID created by another database?)")
     }
 }
 
-impl<I, S> From<MemoId<S>> for InputId<I, S>
+impl<I> Clone for InputId<I>
 where
     I: Input,
-    S: Storage,
-{
-    fn from(id: MemoId<S>) -> Self {
-        Self(id, PhantomData)
-    }
-}
-
-impl<I, S> Clone for InputId<I, S>
-where
-    I: Input,
-    S: Storage,
 {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<I, S> Copy for InputId<I, S>
-where
-    I: Input,
-    S: Storage,
-{
-}
+impl<I> Copy for InputId<I> where I: Input {}
 
-impl<I, S> PartialEq for InputId<I, S>
+impl<I> PartialEq for InputId<I>
 where
     I: Input,
-    S: Storage,
 {
     fn eq(&self, other: &Self) -> bool {
         let Self(self_id, self_marker) = self;
@@ -98,17 +111,11 @@ where
     }
 }
 
-impl<I, S> Eq for InputId<I, S>
-where
-    I: Input,
-    S: Storage,
-{
-}
+impl<I> Eq for InputId<I> where I: Input {}
 
-impl<I, S> Hash for InputId<I, S>
+impl<I> Hash for InputId<I>
 where
     I: Input,
-    S: Storage,
 {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let Self(id, marker) = self;
@@ -117,10 +124,9 @@ where
     }
 }
 
-impl<I, S> Debug for InputId<I, S>
+impl<I> Debug for InputId<I>
 where
     I: Input,
-    S: Storage,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Self(memo_id, _marker) = self;

@@ -1,7 +1,5 @@
 use crate::INCONSISTENT_STATE;
 use crate::panic_expected_different_type;
-use crate::query::Input;
-use crate::query::InputId;
 use alloc::sync::Arc;
 use core::any::Any;
 use core::fmt::Debug;
@@ -17,10 +15,6 @@ const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by anothe
 pub trait Storage: Default + 'static {
     type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
     type Value: Debug + Downcast;
-
-    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
-    where
-        I: Input;
 
     fn store<T>(&self, value: &T) -> Self::Id
     where
@@ -60,16 +54,6 @@ impl Storage for DefaultStorage {
     type Id = DefaultStorageId;
 
     type Value = Arc<dyn Any + Send + Sync>;
-
-    fn store_input_id<I>(&self, f: impl FnOnce(Self::Id) -> InputId<I, Self>) -> InputId<I, Self>
-    where
-        I: Input,
-    {
-        let idx = self.0.read().expect(INCONSISTENT_STATE).values.len();
-        let input_id = f(Self::Id::new(idx));
-        self.store(&input_id);
-        input_id
-    }
 
     fn store<T>(&self, value: &T) -> Self::Id
     where

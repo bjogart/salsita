@@ -6,6 +6,7 @@ use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
 use crate::query::InputId;
+use crate::query::InputRegistry;
 use crate::query::Query;
 use crate::query_ops::QueryOps;
 use crate::query_ops::QueryOpsRegistry;
@@ -35,7 +36,7 @@ pub mod storage;
 mod tests;
 mod update;
 
-const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
+pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
 
 #[derive(Debug, Default)]
 pub struct Db<S = DefaultStorage, H = ()>
@@ -64,6 +65,7 @@ where
 {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
+    inputs: InputRegistry<S>,
     storage: S,
     memos: Memos<S>,
     query_ops: QueryOpsRegistry<S, H>,
@@ -99,23 +101,22 @@ where
         &self.global.event_handler
     }
 
-    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I, S>
+    pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
     where
         I: Input,
     {
         let rev = self.global.rev.get();
         let query_id = self.global.query_ops.query_id::<I>();
         let value_id = self.global.storage.store(value);
-        self.global.storage.store_input_id(|args_id| {
-            let memo_id = self
-                .global
+        self.global.inputs.new_input(|input_id| {
+            let dummy_args_id = self.global.storage.store(&input_id);
+            self.global
                 .memos
-                .new_input(rev, query_id, args_id, value_id);
-            InputId::from(memo_id)
+                .new_input(rev, query_id, dummy_args_id, value_id)
         })
     }
 
-    pub fn set_input<I>(&mut self, id: InputId<I, S>, value: &I::Value)
+    pub fn set_input<I>(&mut self, input_id: InputId<I>, value: &I::Value)
     where
         I: Input,
     {
@@ -124,9 +125,8 @@ where
         self.global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = self.global.rev.bump();
-        let value_id = self.global.storage.store(value);
-        let mut commit = PendingCommit::new(current_rev, id.memo_id());
-        commit.change = Some(PendingChange::new(value_id));
+        let mut commit = PendingCommit::new(current_rev, self.global.inputs.memo_id(input_id));
+        commit.change = Some(PendingChange::new(self.global.storage.store(value)));
         let _update = MemoUpdate::new(&self.global.memos, commit);
     }
 
