@@ -1,7 +1,7 @@
 extern crate alloc;
 
+use crate::barrier::ExclusiveBarrier;
 use crate::event::ScopedEvent;
-use crate::gate::WriteGate;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
@@ -25,8 +25,8 @@ use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
+mod barrier;
 pub mod event;
-mod gate;
 pub(crate) mod memo;
 pub mod query;
 mod registry;
@@ -44,8 +44,8 @@ where
 {
     global: Arc<GlobalState<S, H>>,
     /// This field must drop after `global` to prevent deadlocks; see
-    /// [`WriteGate`] for information.
-    gate: WriteGate,
+    /// [`ExclusiveBarrier`] for information.
+    barrier: ExclusiveBarrier,
 }
 
 #[derive(Debug)]
@@ -120,7 +120,7 @@ where
         I: Input,
     {
         self.global.should_cancel.store(true, Ordering::Release);
-        self.gate.wait_for_write_access(&mut self.global);
+        self.barrier.wait_for_exclusive_access(&mut self.global);
         self.global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = self.global.rev.bump();
@@ -135,7 +135,7 @@ where
         Snapshot {
             db: Self {
                 global: Arc::clone(&self.global),
-                gate: self.gate.clone(),
+                barrier: self.barrier.clone(),
             },
             active_queries: RefCell::default(),
         }
