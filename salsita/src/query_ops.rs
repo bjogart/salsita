@@ -81,7 +81,7 @@ where
             S: Storage,
         {
             let args = args.downcast::<Q::Args>();
-            let out = Q::eval(snapshot, args.as_ref());
+            let out = Q::eval(snapshot, &*args);
             Box::new(out)
         }
 

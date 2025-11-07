@@ -6,6 +6,7 @@ use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
 use core::num::NonZeroUsize;
+use core::ops::Deref;
 use std::collections::HashMap;
 use std::hash::RandomState;
 use std::sync::RwLock;
@@ -24,7 +25,7 @@ pub trait Storage: Default + 'static {
 }
 
 pub trait Downcast {
-    type Downcast<T>: AsRef<T>;
+    type Downcast<T>: Deref<Target = T>;
 
     fn downcast<T>(self) -> Self::Downcast<T>
     where

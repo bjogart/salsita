@@ -33,7 +33,7 @@ macro_rules! impl_dep {
             {
                 let $input($($dep,)*) = args;
                 $(let $dep = snapshot.query::<$dep>($dep);)*
-                O::op($input($($dep.as_ref().clone()),*))
+                O::op($input($($dep.clone()),*))
             }
         }
     };
@@ -102,7 +102,7 @@ where
     where
         H: event::Handler,
     {
-        let d = snapshot.query::<D>(args).as_ref().clone();
+        let d = snapshot.query::<D>(args).clone();
         O::op(d)
     }
 }
