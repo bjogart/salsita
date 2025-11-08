@@ -1,5 +1,8 @@
 use crate::INCONSISTENT_STATE;
 use crate::Revision;
+use crate::event;
+use crate::event::Event;
+use crate::event::EventKind;
 use crate::storage::Storage;
 use core::any::TypeId;
 use core::fmt;
@@ -59,13 +62,19 @@ where
         memo_id
     }
 
-    pub(crate) fn memo_id(&self, query_id: TypeId, args_id: S::Id) -> MemoId<S> {
+    pub(crate) fn memo_id<H>(&self, handler: &H, query_id: TypeId, args_id: S::Id) -> MemoId<S>
+    where
+        H: event::Handler,
+    {
         let memo_id = MemoId { query_id, args_id };
         self.0
             .write()
             .expect(INCONSISTENT_STATE)
             .entry(memo_id)
-            .or_insert_with(|| RwLock::new(MemoEntry::new()));
+            .or_insert_with(|| {
+                handler.event(Event::new(EventKind::NewMemo));
+                RwLock::new(MemoEntry::new())
+            });
         memo_id
     }
 

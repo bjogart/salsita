@@ -37,6 +37,7 @@ pub struct Event {
 #[derive(Clone, Copy, Debug)]
 pub enum EventKind {
     StoreValue(usize),
+    NewMemo,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,6 +68,7 @@ pub struct PerfHandler {
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
     stored_bytes: AtomicUsize,
+    memo_count: AtomicUsize,
 }
 
 #[derive(Debug, Default)]
@@ -80,6 +82,7 @@ impl Handler for PerfHandler {
     fn event(&self, event: Event) {
         match event.kind {
             EventKind::StoreValue(bytes) => self.stored_bytes.fetch_add(bytes, Ordering::Relaxed),
+            EventKind::NewMemo => self.memo_count.fetch_add(1, Ordering::Relaxed),
         };
     }
 
@@ -113,12 +116,14 @@ impl PerfHandler {
             query_count,
             eval_count,
             stored_bytes,
+            memo_count,
         } = self;
         query_time.reset();
         eval_time.reset();
         query_count.store(0, Ordering::Relaxed);
         eval_count.store(0, Ordering::Relaxed);
         stored_bytes.store(0, Ordering::Relaxed);
+        memo_count.store(0, Ordering::Relaxed);
     }
 
     pub fn query_time(&self) -> Duration {
@@ -139,6 +144,10 @@ impl PerfHandler {
 
     pub fn stored_bytes(&self) -> usize {
         self.stored_bytes.load(Ordering::Relaxed)
+    }
+
+    pub fn memo_count(&self) -> usize {
+        self.memo_count.load(Ordering::Relaxed)
     }
 }
 

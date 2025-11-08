@@ -168,7 +168,10 @@ where
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
         let query_id = self.global.query_ops.query_id::<Q>();
         let args_id = self.global.storage.store(&self.global.event_handler, args);
-        let memo_id = self.global.memos.memo_id(query_id, args_id);
+        let memo_id = self
+            .global
+            .memos
+            .memo_id(&self.global.event_handler, query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
