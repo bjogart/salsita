@@ -2,6 +2,8 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
+use std::thread;
+use std::thread::ThreadId;
 use std::time::Instant;
 
 const VALUE_ALREADY_TAKEN: &str = "bug: guard payload already taken";
@@ -25,7 +27,13 @@ where
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ScopedEvent {
+pub struct ScopedEvent {
+    pub thread_id: ThreadId,
+    pub kind: ScopedEventKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ScopedEventKind {
     Query,
     Eval,
 }
@@ -53,22 +61,22 @@ pub struct AtomicDuration {
 }
 
 impl Handler for PerfHandler {
-    type Payload = (ScopedEvent, Instant);
+    type Payload = (ScopedEventKind, Instant);
 
     fn enter_scope(&self, event: ScopedEvent) -> Self::Payload {
-        match event {
-            ScopedEvent::Query => self.query_count.fetch_add(1, Ordering::Relaxed),
-            ScopedEvent::Eval => self.eval_count.fetch_add(1, Ordering::Relaxed),
+        match event.kind {
+            ScopedEventKind::Query => self.query_count.fetch_add(1, Ordering::Relaxed),
+            ScopedEventKind::Eval => self.eval_count.fetch_add(1, Ordering::Relaxed),
         };
-        (event, Instant::now())
+        (event.kind, Instant::now())
     }
 
     fn exit_scope(&self, payload: Self::Payload) {
-        let (event, start) = payload;
+        let (kind, start) = payload;
         let elapsed = start.elapsed();
-        match event {
-            ScopedEvent::Query => self.query_time.add(elapsed),
-            ScopedEvent::Eval => self.eval_time.add(elapsed),
+        match kind {
+            ScopedEventKind::Query => self.query_time.add(elapsed),
+            ScopedEventKind::Eval => self.eval_time.add(elapsed),
         }
     }
 }
@@ -114,6 +122,15 @@ impl Handler for () {
     fn enter_scope(&self, _: ScopedEvent) -> Self::Payload {}
 
     fn exit_scope(&self, (): Self::Payload) {}
+}
+
+impl ScopedEvent {
+    pub(crate) fn new(kind: ScopedEventKind) -> Self {
+        Self {
+            thread_id: thread::current().id(),
+            kind,
+        }
+    }
 }
 
 impl<H> Drop for ScopeGuard<'_, H>

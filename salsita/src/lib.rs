@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::barrier::ExclusiveBarrier;
 use crate::event::ScopedEvent;
+use crate::event::ScopedEventKind;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
@@ -156,7 +157,10 @@ where
     where
         Q: Query,
     {
-        let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
+        let _query_guard = &self
+            .global
+            .event_handler
+            .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
         let query_id = self.global.query_ops.query_id::<Q>();
         let args_id = self.global.storage.store(args);
         let memo_id = self.global.memos.memo_id(query_id, args_id);
@@ -199,7 +203,10 @@ where
         let args = self.global.storage.get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
-            let _eval_guard = self.global.event_handler.scoped_event(ScopedEvent::Eval);
+            let _eval_guard = &self
+                .global
+                .event_handler
+                .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             eval(self, args)
         };
         let out = (store_output)(&self.global.storage, out.as_ref());
