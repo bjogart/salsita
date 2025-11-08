@@ -107,7 +107,10 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self.global.query_ops.query_id::<I>();
+        let query_id = self
+            .global
+            .query_ops
+            .query_id::<I>(&self.global.event_handler);
         let value_id = self.global.storage.store(&self.global.event_handler, value);
         self.global.inputs.new_input(|input_id| {
             let dummy_args_id = self
@@ -166,7 +169,10 @@ where
             .global
             .event_handler
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
-        let query_id = self.global.query_ops.query_id::<Q>();
+        let query_id = self
+            .global
+            .query_ops
+            .query_id::<Q>(&self.global.event_handler);
         let args_id = self.global.storage.store(&self.global.event_handler, args);
         let memo_id = self
             .global

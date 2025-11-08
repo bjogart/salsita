@@ -38,6 +38,7 @@ pub struct Event {
 pub enum EventKind {
     StoreValue(usize),
     NewMemo,
+    RegisterQueryOps,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,6 +68,7 @@ pub struct PerfHandler {
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
+    query_ops_count: AtomicUsize,
     stored_bytes: AtomicUsize,
     memo_count: AtomicUsize,
 }
@@ -81,6 +83,7 @@ impl Handler for PerfHandler {
 
     fn event(&self, event: Event) {
         match event.kind {
+            EventKind::RegisterQueryOps => self.query_ops_count.fetch_add(1, Ordering::Relaxed),
             EventKind::StoreValue(bytes) => self.stored_bytes.fetch_add(bytes, Ordering::Relaxed),
             EventKind::NewMemo => self.memo_count.fetch_add(1, Ordering::Relaxed),
         };
@@ -115,6 +118,7 @@ impl PerfHandler {
             eval_time,
             query_count,
             eval_count,
+            query_ops_count,
             stored_bytes,
             memo_count,
         } = self;
@@ -122,6 +126,7 @@ impl PerfHandler {
         eval_time.reset();
         query_count.store(0, Ordering::Relaxed);
         eval_count.store(0, Ordering::Relaxed);
+        query_ops_count.store(0, Ordering::Relaxed);
         stored_bytes.store(0, Ordering::Relaxed);
         memo_count.store(0, Ordering::Relaxed);
     }

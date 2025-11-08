@@ -1,6 +1,8 @@
 use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::event;
+use crate::event::Event;
+use crate::event::EventKind;
 use crate::panic_expected_different_type;
 use crate::query::Query;
 use crate::storage::Handle as _;
@@ -39,7 +41,7 @@ where
     S: Storage,
     H: event::Handler,
 {
-    pub(crate) fn query_id<Q>(&self) -> TypeId
+    pub(crate) fn query_id<Q>(&self, handler: &H) -> TypeId
     where
         Q: Query,
     {
@@ -48,7 +50,10 @@ where
             .write()
             .expect(INCONSISTENT_STATE)
             .entry(query_id)
-            .or_insert_with(QueryOps::new::<Q>);
+            .or_insert_with(|| {
+                handler.event(Event::new(EventKind::RegisterQueryOps));
+                QueryOps::new::<Q>()
+            });
         query_id
     }
 
