@@ -212,9 +212,9 @@ where
         let QueryOps { eval, store_output } = self
             .global
             .query_ops
-            .get(memo_id.query_id())
+            .get(memo_id.query_id)
             .expect("bug: query not registered");
-        let args = self.global.storage.get(memo_id.args());
+        let args = self.global.storage.get(memo_id.args_id);
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = &self

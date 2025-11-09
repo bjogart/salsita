@@ -24,8 +24,8 @@ pub(crate) struct MemoId<S>
 where
     S: Storage,
 {
-    query_id: TypeId,
-    args_id: S::Id,
+    pub(crate) query_id: TypeId,
+    pub(crate) args_id: S::Id,
 }
 
 #[derive(Debug)]
@@ -112,19 +112,6 @@ where
             last_changed: Revision::NEVER_VERIFIED,
             value_id: None,
         }
-    }
-}
-
-impl<S> MemoId<S>
-where
-    S: Storage,
-{
-    pub(crate) const fn query_id(self) -> TypeId {
-        self.query_id
-    }
-
-    pub(crate) const fn args(self) -> S::Id {
-        self.args_id
     }
 }
 
