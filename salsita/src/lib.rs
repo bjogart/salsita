@@ -132,10 +132,10 @@ where
         self.global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = self.global.rev.bump();
-        let mut commit = PendingCommit::new(current_rev, self.global.inputs.memo_id(input_id));
-        commit.change = Some(PendingChange::new(
-            self.global.storage.store(&self.global.event_handler, value),
-        ));
+        let args_id = self.global.inputs.memo_id(input_id);
+        let mut commit = PendingCommit::new(current_rev, args_id);
+        let value_id = self.global.storage.store(&self.global.event_handler, value);
+        commit.change = Some(PendingChange::new(value_id));
         let _update = MemoUpdate::new(&self.global.memos, commit);
     }
 
