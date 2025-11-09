@@ -66,11 +66,25 @@ impl Storage for DefaultStorage {
         H: event::Handler,
     {
         let mut inner = self.0.write().expect(INCONSISTENT_STATE);
-        let DefaultStorageInner {
+        inner.store(handler, value)
+    }
+
+    fn get(&self, id: Self::Id) -> Self::Handle {
+        self.0.read().expect(INCONSISTENT_STATE).get(id)
+    }
+}
+
+impl DefaultStorageInner {
+    fn store<T, H>(&mut self, handler: &H, value: &T) -> DefaultStorageId
+    where
+        T: Clone + Eq + Hash + Send + Sync + 'static,
+        H: event::Handler,
+    {
+        let Self {
             fingerprint_hasher,
             index,
             values,
-        } = &mut *inner;
+        } = self;
         let bucket = Self::find_bucket(fingerprint_hasher, index, value);
         Self::find_bucket_entry::<T>(bucket, values, value).unwrap_or_else(|| {
             handler.event(Event::new(EventKind::StoreValue));
@@ -78,15 +92,6 @@ impl Storage for DefaultStorage {
         })
     }
 
-    fn get(&self, id: Self::Id) -> Self::Handle {
-        Arc::clone(Self::get_ref(
-            &self.0.read().expect(INCONSISTENT_STATE).values,
-            id,
-        ))
-    }
-}
-
-impl DefaultStorage {
     fn find_bucket<'index, T>(
         hash_builder: &FingerprintHasher,
         index: &'index mut HashMap<Fingerprint, Bucket>,
@@ -129,6 +134,10 @@ impl DefaultStorage {
         values.push(Arc::new(value.clone()));
         bucket.push(id);
         id
+    }
+
+    fn get(&self, id: DefaultStorageId) -> Arc<dyn Any + Send + Sync> {
+        Arc::clone(Self::get_ref(&self.values, id))
     }
 
     fn get_ref(
