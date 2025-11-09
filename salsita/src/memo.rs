@@ -72,7 +72,7 @@ where
             .expect(INCONSISTENT_STATE)
             .entry(memo_id)
             .or_insert_with(|| {
-                handler.event(Event::new(EventKind::NewMemo));
+                handler.event(Event::new(EventKind::RegisterMemo));
                 RwLock::new(MemoEntry::new())
             });
         memo_id

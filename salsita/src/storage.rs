@@ -8,7 +8,6 @@ use core::any::Any;
 use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
-use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Deref;
 use std::collections::HashMap;
@@ -74,7 +73,7 @@ impl Storage for DefaultStorage {
         } = &mut *inner;
         let bucket = Self::find_bucket(fingerprint_hasher, index, value);
         Self::find_bucket_entry::<T>(bucket, values, value).unwrap_or_else(|| {
-            handler.event(Event::new(EventKind::StoreValue(mem::size_of::<T>())));
+            handler.event(Event::new(EventKind::StoreValue));
             Self::insert_value(bucket, values, value)
         })
     }

@@ -36,9 +36,9 @@ pub struct Event {
 
 #[derive(Clone, Copy, Debug)]
 pub enum EventKind {
-    StoreValue(usize),
-    NewMemo,
     RegisterQueryOps,
+    StoreValue,
+    RegisterMemo,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -68,8 +68,8 @@ pub struct PerfHandler {
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
-    query_ops_count: AtomicUsize,
-    stored_bytes: AtomicUsize,
+    registered_query_ops: AtomicUsize,
+    stored_values: AtomicUsize,
     memo_count: AtomicUsize,
 }
 
@@ -83,10 +83,16 @@ impl Handler for PerfHandler {
 
     fn event(&self, event: Event) {
         match event.kind {
-            EventKind::RegisterQueryOps => self.query_ops_count.fetch_add(1, Ordering::Relaxed),
-            EventKind::StoreValue(bytes) => self.stored_bytes.fetch_add(bytes, Ordering::Relaxed),
-            EventKind::NewMemo => self.memo_count.fetch_add(1, Ordering::Relaxed),
-        };
+            EventKind::RegisterQueryOps => {
+                self.registered_query_ops.fetch_add(1, Ordering::Relaxed);
+            }
+            EventKind::StoreValue => {
+                self.stored_values.fetch_add(1, Ordering::Relaxed);
+            }
+            EventKind::RegisterMemo => {
+                self.memo_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 
     fn enter_scope(&self, event: ScopedEvent) -> Self::Payload {
@@ -118,16 +124,16 @@ impl PerfHandler {
             eval_time,
             query_count,
             eval_count,
-            query_ops_count,
-            stored_bytes,
+            registered_query_ops,
+            stored_values,
             memo_count,
         } = self;
         query_time.reset();
         eval_time.reset();
         query_count.store(0, Ordering::Relaxed);
         eval_count.store(0, Ordering::Relaxed);
-        query_ops_count.store(0, Ordering::Relaxed);
-        stored_bytes.store(0, Ordering::Relaxed);
+        registered_query_ops.store(0, Ordering::Relaxed);
+        stored_values.store(0, Ordering::Relaxed);
         memo_count.store(0, Ordering::Relaxed);
     }
 
@@ -147,8 +153,12 @@ impl PerfHandler {
         self.eval_count.load(Ordering::Relaxed)
     }
 
-    pub fn stored_bytes(&self) -> usize {
-        self.stored_bytes.load(Ordering::Relaxed)
+    pub fn registered_query_ops(&self) -> usize {
+        self.registered_query_ops.load(Ordering::Relaxed)
+    }
+
+    pub fn stored_values(&self) -> usize {
+        self.stored_values.load(Ordering::Relaxed)
     }
 
     pub fn memo_count(&self) -> usize {
