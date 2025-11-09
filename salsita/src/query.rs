@@ -12,10 +12,7 @@ use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use std::sync::RwLock;
 
-pub trait Query
-where
-    Self: 'static,
-{
+pub trait Query: Send + Sync + 'static {
     type Args: Clone + Eq + Hash + Send + Sync + 'static;
     type Out: Clone + Eq + Hash + Send + Sync + 'static;
 
@@ -34,9 +31,7 @@ pub(crate) struct InputRegistry<S>(RwLock<Vec<MemoId<S>>>)
 where
     S: Storage;
 
-pub struct InputId<I>(NonZeroUsize, PhantomData<I>)
-where
-    I: Input;
+pub struct InputId<I>(NonZeroUsize, PhantomData<I>);
 
 impl<I> Query for I
 where
@@ -59,10 +54,7 @@ impl<S> InputRegistry<S>
 where
     S: Storage,
 {
-    pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I>
-    where
-        I: Input,
-    {
+    pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I> {
         let mut inputs = self.0.write().expect(INCONSISTENT_STATE);
         let idx = inputs.len();
         let input_id = InputId(
@@ -74,10 +66,7 @@ where
         input_id
     }
 
-    pub(crate) fn memo_id<I>(&self, input_id: InputId<I>) -> MemoId<S>
-    where
-        I: Input,
-    {
+    pub(crate) fn memo_id<I>(&self, input_id: InputId<I>) -> MemoId<S> {
         let idx = input_id.0.get() - 1;
         *self
             .0
@@ -88,21 +77,15 @@ where
     }
 }
 
-impl<I> Clone for InputId<I>
-where
-    I: Input,
-{
+impl<I> Clone for InputId<I> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<I> Copy for InputId<I> where I: Input {}
+impl<I> Copy for InputId<I> {}
 
-impl<I> PartialEq for InputId<I>
-where
-    I: Input,
-{
+impl<I> PartialEq for InputId<I> {
     fn eq(&self, other: &Self) -> bool {
         let Self(self_id, self_marker) = self;
         let Self(other_id, other_marker) = other;
@@ -110,12 +93,9 @@ where
     }
 }
 
-impl<I> Eq for InputId<I> where I: Input {}
+impl<I> Eq for InputId<I> {}
 
-impl<I> Hash for InputId<I>
-where
-    I: Input,
-{
+impl<I> Hash for InputId<I> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         let Self(id, marker) = self;
         id.hash(state);
@@ -123,10 +103,7 @@ where
     }
 }
 
-impl<I> Debug for InputId<I>
-where
-    I: Input,
-{
+impl<I> Debug for InputId<I> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let Self(memo_id, _marker) = self;
         f.debug_tuple("InputId").field(&memo_id).finish()

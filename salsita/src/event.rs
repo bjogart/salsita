@@ -37,8 +37,11 @@ pub struct Event {
 #[derive(Clone, Copy, Debug)]
 pub enum EventKind {
     RegisterQueryOps,
+    DeregisterQueryOps,
     StoreValue,
+    FreeValues(usize),
     RegisterMemo,
+    DeregisterMemo,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -84,21 +87,30 @@ impl Handler for PerfHandler {
     fn event(&self, event: Event) {
         match event.kind {
             EventKind::RegisterQueryOps => {
-                self.registered_query_ops.fetch_add(1, Ordering::Relaxed);
+                self.registered_query_ops.fetch_add(1, Ordering::AcqRel);
+            }
+            EventKind::DeregisterQueryOps => {
+                self.registered_query_ops.fetch_sub(1, Ordering::AcqRel);
             }
             EventKind::StoreValue => {
-                self.stored_values.fetch_add(1, Ordering::Relaxed);
+                self.stored_values.fetch_add(1, Ordering::AcqRel);
+            }
+            EventKind::FreeValues(count) => {
+                self.stored_values.fetch_sub(count, Ordering::AcqRel);
             }
             EventKind::RegisterMemo => {
-                self.memo_count.fetch_add(1, Ordering::Relaxed);
+                self.memo_count.fetch_add(1, Ordering::AcqRel);
+            }
+            EventKind::DeregisterMemo => {
+                self.memo_count.fetch_sub(1, Ordering::AcqRel);
             }
         }
     }
 
     fn enter_scope(&self, event: ScopedEvent) -> Self::Payload {
         match event.kind {
-            ScopedEventKind::Query => self.query_count.fetch_add(1, Ordering::Relaxed),
-            ScopedEventKind::Eval => self.eval_count.fetch_add(1, Ordering::Relaxed),
+            ScopedEventKind::Query => self.query_count.fetch_add(1, Ordering::AcqRel),
+            ScopedEventKind::Eval => self.eval_count.fetch_add(1, Ordering::AcqRel),
         };
         (event.kind, Instant::now())
     }
@@ -130,11 +142,11 @@ impl PerfHandler {
         } = self;
         query_time.reset();
         eval_time.reset();
-        query_count.store(0, Ordering::Relaxed);
-        eval_count.store(0, Ordering::Relaxed);
-        registered_query_ops.store(0, Ordering::Relaxed);
-        stored_values.store(0, Ordering::Relaxed);
-        memo_count.store(0, Ordering::Relaxed);
+        query_count.store(0, Ordering::Release);
+        eval_count.store(0, Ordering::Release);
+        registered_query_ops.store(0, Ordering::Release);
+        stored_values.store(0, Ordering::Release);
+        memo_count.store(0, Ordering::Release);
     }
 
     pub fn query_time(&self) -> Duration {
@@ -146,23 +158,23 @@ impl PerfHandler {
     }
 
     pub fn query_count(&self) -> usize {
-        self.query_count.load(Ordering::Relaxed)
+        self.query_count.load(Ordering::Acquire)
     }
 
     pub fn eval_count(&self) -> usize {
-        self.eval_count.load(Ordering::Relaxed)
+        self.eval_count.load(Ordering::Acquire)
     }
 
     pub fn registered_query_ops(&self) -> usize {
-        self.registered_query_ops.load(Ordering::Relaxed)
+        self.registered_query_ops.load(Ordering::Acquire)
     }
 
     pub fn stored_values(&self) -> usize {
-        self.stored_values.load(Ordering::Relaxed)
+        self.stored_values.load(Ordering::Acquire)
     }
 
     pub fn memo_count(&self) -> usize {
-        self.memo_count.load(Ordering::Relaxed)
+        self.memo_count.load(Ordering::Acquire)
     }
 }
 
@@ -207,14 +219,14 @@ where
 impl AtomicDuration {
     fn add(&self, duration: Duration) {
         let ns = duration.as_nanos().try_into().unwrap_or(u64::MAX);
-        self.ns.fetch_add(ns, Ordering::Relaxed);
+        self.ns.fetch_add(ns, Ordering::AcqRel);
     }
 
     fn duration(&self) -> Duration {
-        Duration::from_nanos(self.ns.load(Ordering::Relaxed))
+        Duration::from_nanos(self.ns.load(Ordering::Acquire))
     }
 
     fn reset(&self) {
-        self.ns.store(0, Ordering::Relaxed);
+        self.ns.store(0, Ordering::Release);
     }
 }

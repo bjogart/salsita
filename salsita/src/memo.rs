@@ -11,12 +11,17 @@ use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
 use std::collections::HashMap;
+use std::collections::hash_map;
 use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
 pub(crate) struct Memos<S>(RwLock<HashMap<MemoId<S>, RwLock<MemoEntry<S>>>>)
+where
+    S: Storage;
+
+pub(crate) struct MemosIter<S>(hash_map::IntoIter<MemoId<S>, RwLock<MemoEntry<S>>>)
 where
     S: Storage;
 
@@ -105,6 +110,49 @@ where
             .expect(UNKNOWN_ID)
             .read()
             .expect(INCONSISTENT_STATE))
+    }
+}
+
+impl<S> IntoIterator for Memos<S>
+where
+    S: Storage,
+{
+    type Item = (MemoId<S>, MemoEntry<S>);
+
+    type IntoIter = MemosIter<S>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        MemosIter(self.0.into_inner().expect(INCONSISTENT_STATE).into_iter())
+    }
+}
+
+impl<S> FromIterator<(MemoId<S>, MemoEntry<S>)> for Memos<S>
+where
+    S: Storage,
+{
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = (MemoId<S>, MemoEntry<S>)>,
+    {
+        Self(RwLock::new(
+            iter.into_iter()
+                .map(|(memo_id, memo)| (memo_id, RwLock::new(memo)))
+                .collect(),
+        ))
+    }
+}
+
+impl<S> Iterator for MemosIter<S>
+where
+    S: Storage,
+{
+    type Item = (MemoId<S>, MemoEntry<S>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|(memo_id, memo)| {
+            let memo = memo.into_inner().expect(INCONSISTENT_STATE);
+            (memo_id, memo)
+        })
     }
 }
 

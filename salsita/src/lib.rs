@@ -1,19 +1,22 @@
 extern crate alloc;
 
 use crate::barrier::ExclusiveBarrier;
+use crate::event::Event;
 use crate::event::ScopedEvent;
 use crate::event::ScopedEventKind;
+use crate::memo::MemoEntry;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::InputRegistry;
 use crate::query::Query;
-use crate::query_ops::QueryOps;
 use crate::query_ops::QueryOpsRegistry;
+use crate::query_ops::QueryOpsRegistryInner;
 use crate::storage::DefaultStorage;
 use crate::storage::Handle;
 use crate::storage::Storage;
+use crate::storage::Transfer as _;
 use crate::update::MemoUpdate;
 use crate::update::PendingChange;
 use crate::update::PendingCommit;
@@ -21,6 +24,7 @@ use crate::update::QueryUpdate;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
+use core::mem;
 use core::num::NonZeroUsize;
 use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
@@ -38,6 +42,8 @@ mod tests;
 mod update;
 
 pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
+const GLOBAL_NOT_EXCLUSIVE: &str = "bug: `self.global` should be uniquely owned at this point";
+const QUERY_NOT_REGISTERED: &str = "bug: query not registered";
 
 #[derive(Debug, Default)]
 pub struct Db<S = DefaultStorage, H = ()>
@@ -133,14 +139,15 @@ where
     {
         self.global.should_cancel.store(true, Ordering::Release);
         self.barrier.wait_for_exclusive_access(&mut self.global);
-        self.global.should_cancel.store(false, Ordering::Release);
+        let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
+        global.should_cancel.store(false, Ordering::Release);
 
-        let current_rev = self.global.rev.bump();
-        let args_id = self.global.inputs.memo_id(input_id);
+        let current_rev = global.rev.bump();
+        let args_id = global.inputs.memo_id(input_id);
         let mut commit = PendingCommit::new(current_rev, args_id);
-        let value_id = self.global.storage.store(&self.global.event_handler, value);
+        let value_id = global.storage.store(&global.event_handler, value);
         commit.change = Some(PendingChange::new(value_id));
-        let _update = MemoUpdate::new(&self.global.memos, commit);
+        let _update = MemoUpdate::new(&global.memos, commit);
     }
 
     #[must_use]
@@ -151,6 +158,61 @@ where
                 barrier: self.barrier.clone(),
             },
             active_queries: RefCell::default(),
+        }
+    }
+
+    pub fn gc(&mut self) {
+        self.barrier.wait_for_exclusive_access(&mut self.global);
+        let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
+
+        let mut storage_transfer = mem::take(&mut global.storage).into_transfer();
+        let mut query_ops_inner = mem::take(&mut global.query_ops).into_inner();
+        let memos = mem::take(&mut global.memos)
+            .into_iter()
+            .filter_map(|(mut memo_id, mut memo)| {
+                // Memos with dependencies are not inputs by definition.
+                if !memo.deps.is_empty() {
+                    return ignore_memo(&global.event_handler, &mut query_ops_inner, memo_id);
+                }
+                // Memos without dependencies and without a value are derived
+                // queries that have never been evaluated, not inputs.
+                let Some(value_id) = memo.value_id else {
+                    return ignore_memo(&global.event_handler, &mut query_ops_inner, memo_id);
+                };
+
+                let ops = query_ops_inner
+                    .get(memo_id.query_id)
+                    .expect(QUERY_NOT_REGISTERED);
+                let (next_args_id, next_value_id) = (ops.transfer_input_memo_values)(
+                    &mut storage_transfer,
+                    memo_id.args_id,
+                    value_id,
+                );
+                memo_id.args_id = next_args_id;
+                memo.value_id = Some(next_value_id);
+                Some((memo_id, memo))
+            })
+            .collect();
+
+        let _dummy_query_ops = mem::replace(&mut global.query_ops, query_ops_inner.into_registry());
+        let _dummy_storage = mem::replace(
+            &mut global.storage,
+            storage_transfer.into_storage(&global.event_handler),
+        );
+        let _dummy_memos = mem::replace(&mut global.memos, memos);
+
+        fn ignore_memo<S, H>(
+            handler: &H,
+            query_ops_inner: &mut QueryOpsRegistryInner<S, H>,
+            memo_id: MemoId<S>,
+        ) -> Option<(MemoId<S>, MemoEntry<S>)>
+        where
+            S: Storage,
+            H: event::Handler,
+        {
+            handler.event(Event::new(event::EventKind::DeregisterMemo));
+            query_ops_inner.remove(handler, memo_id.query_id);
+            None
         }
     }
 
@@ -213,11 +275,11 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
-        let QueryOps { eval, store_output } = self
+        let ops = self
             .global
             .query_ops
             .get(memo_id.query_id)
-            .expect("bug: query not registered");
+            .expect(QUERY_NOT_REGISTERED);
         let args = self.global.storage.get(memo_id.args_id);
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
@@ -225,9 +287,9 @@ where
                 .global
                 .event_handler
                 .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
-            eval(self, args)
+            (ops.eval)(self, args)
         };
-        let out = (store_output)(
+        let out = (ops.store_output)(
             &self.global.storage,
             &self.global.event_handler,
             out.as_ref(),

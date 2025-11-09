@@ -19,6 +19,7 @@ const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by anothe
 pub trait Storage: Default + 'static {
     type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
     type Handle: Debug + Handle;
+    type Transfer: Transfer<Storage = Self>;
 
     fn store<T, H>(&self, handler: &H, value: &T) -> Self::Id
     where
@@ -26,6 +27,33 @@ pub trait Storage: Default + 'static {
         H: event::Handler;
 
     fn get(&self, id: Self::Id) -> Self::Handle;
+
+    fn into_transfer(self) -> Self::Transfer;
+}
+
+pub trait Transfer {
+    type Storage: Storage;
+
+    /// Retrieve a value corresponding to a storage ID.
+    ///
+    /// `id` must be a value stored inside the storage that created this
+    /// [`Transfer`] struct. Passing in a storage ID from a different storage
+    /// constitutes a logic bug in Salsita and implementations should panic if
+    /// an invalid storage ID is encountered.
+    ///
+    /// [`transfer`][Transfer::transfer] may move the data associated with `id`
+    /// to a new storage. Calling `self.get_raw_input_id(id)` after
+    /// `self.transfer(id)` therefore also constitutes a logic error in Salsita
+    /// and implementations should panic to indicate its existence.
+    fn get(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Handle;
+
+    fn transfer<T>(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Id
+    where
+        T: Clone + Eq + Hash + Send + Sync + 'static;
+
+    fn into_storage<H>(self, handler: &H) -> Self::Storage
+    where
+        H: event::Handler;
 }
 
 pub trait Handle {
@@ -38,6 +66,12 @@ pub trait Handle {
 
 #[derive(Debug, Default)]
 pub struct DefaultStorage(RwLock<DefaultStorageInner>);
+
+#[derive(Debug)]
+pub struct DefaultTransfer {
+    curr: DefaultStorageInner,
+    next: DefaultStorageInner,
+}
 
 #[derive(Debug, Default)]
 struct DefaultStorageInner {
@@ -60,6 +94,8 @@ impl Storage for DefaultStorage {
 
     type Handle = Arc<dyn Any + Send + Sync>;
 
+    type Transfer = DefaultTransfer;
+
     fn store<T, H>(&self, handler: &H, value: &T) -> Self::Id
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
@@ -71,6 +107,13 @@ impl Storage for DefaultStorage {
 
     fn get(&self, id: Self::Id) -> Self::Handle {
         self.0.read().expect(INCONSISTENT_STATE).get(id)
+    }
+
+    fn into_transfer(self) -> Self::Transfer {
+        DefaultTransfer {
+            curr: self.0.into_inner().expect(INCONSISTENT_STATE),
+            next: DefaultStorageInner::default(),
+        }
     }
 }
 
@@ -145,6 +188,31 @@ impl DefaultStorageInner {
         id: DefaultStorageId,
     ) -> &Arc<dyn Any + Send + Sync> {
         values.get(id.idx()).expect(UNKNOWN_ID)
+    }
+}
+
+impl Transfer for DefaultTransfer {
+    type Storage = DefaultStorage;
+
+    fn get(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Handle {
+        self.curr.get(id)
+    }
+
+    fn transfer<T>(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Id
+    where
+        T: Clone + Eq + Hash + Send + Sync + 'static,
+    {
+        let value = Handle::downcast::<T>(self.curr.get(id));
+        self.next.store(&(), value.as_ref())
+    }
+
+    fn into_storage<H>(self, handler: &H) -> Self::Storage
+    where
+        H: event::Handler,
+    {
+        let freed_values = self.curr.values.len() - self.next.values.len();
+        handler.event(Event::new(EventKind::FreeValues(freed_values)));
+        DefaultStorage(RwLock::new(self.next))
     }
 }
 
