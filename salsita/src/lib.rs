@@ -132,10 +132,10 @@ where
         self.global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = self.global.rev.bump();
-        let mut commit = PendingCommit::new(current_rev, self.global.inputs.memo_id(input_id));
-        commit.change = Some(PendingChange::new(
-            self.global.storage.store(&self.global.event_handler, value),
-        ));
+        let args_id = self.global.inputs.memo_id(input_id);
+        let mut commit = PendingCommit::new(current_rev, args_id);
+        let value_id = self.global.storage.store(&self.global.event_handler, value);
+        commit.change = Some(PendingChange::new(value_id));
         let _update = MemoUpdate::new(&self.global.memos, commit);
     }
 
@@ -212,9 +212,9 @@ where
         let QueryOps { eval, store_output } = self
             .global
             .query_ops
-            .get(memo_id.query_id())
+            .get(memo_id.query_id)
             .expect("bug: query not registered");
-        let args = self.global.storage.get(memo_id.args());
+        let args = self.global.storage.get(memo_id.args_id);
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
             let _eval_guard = &self
