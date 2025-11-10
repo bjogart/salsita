@@ -43,22 +43,29 @@ impl<S> Memos<S>
 where
     S: Storage,
 {
-    pub(crate) fn new_input(
+    pub(crate) fn new_input<H>(
         &self,
+        handler: &H,
         rev: Revision,
         query_id: TypeId,
         args_id: S::Id,
         value_id: S::Id,
-    ) -> MemoId<S> {
+    ) -> MemoId<S>
+    where
+        H: event::Handler,
+    {
         let memo_id = MemoId { query_id, args_id };
         let mut entry = MemoEntry::new();
         entry.value_id = Some(value_id);
         entry.last_verified = rev;
         entry.last_changed = rev;
+
+        handler.event(Event::new(EventKind::RegisterMemo));
         self.0
             .write()
             .expect(INCONSISTENT_STATE)
             .insert(memo_id, RwLock::new(entry));
+
         memo_id
     }
 

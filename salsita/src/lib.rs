@@ -117,9 +117,13 @@ where
                 .global
                 .storage
                 .store(&self.global.event_handler, &input_id);
-            self.global
-                .memos
-                .new_input(rev, query_id, dummy_args_id, value_id)
+            self.global.memos.new_input(
+                &self.global.event_handler,
+                rev,
+                query_id,
+                dummy_args_id,
+                value_id,
+            )
         })
     }
 
