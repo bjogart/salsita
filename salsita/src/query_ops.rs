@@ -14,12 +14,14 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 #[derive(Debug, Default)]
-pub(crate) struct QueryOpsRegistry<S, H>
+pub(crate) struct QueryOpsRegistry<S, H>(RwLock<QueryOpsRegistryInner<S, H>>)
 where
-    S: Storage,
-{
-    ops: RwLock<HashMap<TypeId, QueryOps<S, H>>>,
-}
+    S: Storage;
+
+#[derive(Debug, Default)]
+struct QueryOpsRegistryInner<S, H>(HashMap<TypeId, QueryOps<S, H>>)
+where
+    S: Storage;
 
 #[derive(Debug)]
 pub(crate) struct QueryOps<S, H>
@@ -45,24 +47,36 @@ where
     where
         Q: Query,
     {
-        let query_id = TypeId::of::<Q>();
-        self.ops
+        self.0
             .write()
             .expect(INCONSISTENT_STATE)
-            .entry(query_id)
-            .or_insert_with(|| {
-                handler.event(Event::new(EventKind::RegisterQueryOps));
-                QueryOps::new::<Q>()
-            });
-        query_id
+            .query_id::<Q>(handler)
     }
 
     pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
-        self.ops
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .get(&query_id)
-            .copied()
+        self.0.read().expect(INCONSISTENT_STATE).get(query_id)
+    }
+}
+
+impl<S, H> QueryOpsRegistryInner<S, H>
+where
+    S: Storage,
+    H: event::Handler,
+{
+    fn query_id<Q>(&mut self, handler: &H) -> TypeId
+    where
+        Q: Query,
+    {
+        let query_id = TypeId::of::<Q>();
+        self.0.entry(query_id).or_insert_with(|| {
+            handler.event(Event::new(EventKind::RegisterQueryOps));
+            QueryOps::new::<Q>()
+        });
+        query_id
+    }
+
+    fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
+        self.0.get(&query_id).copied()
     }
 }
 
