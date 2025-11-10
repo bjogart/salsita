@@ -45,7 +45,7 @@ pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to
 const GLOBAL_NOT_EXCLUSIVE: &str = "bug: `self.global` should be uniquely owned at this point";
 const QUERY_NOT_REGISTERED: &str = "bug: query not registered";
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Db<S = DefaultStorage, H = ()>
 where
     S: Storage,
@@ -65,7 +65,7 @@ where
     active_queries: RefCell<ActiveQueryStack<S>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct GlobalState<S, H>
 where
     S: Storage,
@@ -222,6 +222,19 @@ where
     }
 }
 
+impl<S, H> Default for Db<S, H>
+where
+    S: Storage,
+    H: event::Handler,
+{
+    fn default() -> Self {
+        Self {
+            global: Arc::default(),
+            barrier: ExclusiveBarrier::default(),
+        }
+    }
+}
+
 impl<S, H> Snapshot<S, H>
 where
     S: Storage,
@@ -342,6 +355,35 @@ where
     }
 }
 
+impl<S, H> Deref for Snapshot<S, H>
+where
+    S: Storage,
+{
+    type Target = Db<S, H>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+impl<S, H> Default for GlobalState<S, H>
+where
+    S: Storage,
+    H: event::Handler,
+{
+    fn default() -> Self {
+        Self {
+            rev: GlobalRevision::default(),
+            should_cancel: AtomicBool::default(),
+            inputs: InputRegistry::default(),
+            storage: S::default(),
+            memos: Memos::default(),
+            query_ops: QueryOpsRegistry::default(),
+            event_handler: H::default(),
+        }
+    }
+}
+
 impl<S> Default for ActiveQueryStack<S>
 where
     S: Storage,
@@ -359,17 +401,6 @@ where
         Self {
             deps: Vec::default(),
         }
-    }
-}
-
-impl<S, H> Deref for Snapshot<S, H>
-where
-    S: Storage,
-{
-    type Target = Db<S, H>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.db
     }
 }
 

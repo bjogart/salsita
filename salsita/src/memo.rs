@@ -16,7 +16,7 @@ use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Memos<S>(RwLock<HashMap<MemoId<S>, RwLock<MemoEntry<S>>>>)
 where
     S: Storage;
@@ -139,6 +139,15 @@ where
                 .map(|(memo_id, memo)| (memo_id, RwLock::new(memo)))
                 .collect(),
         ))
+    }
+}
+
+impl<S> Default for Memos<S>
+where
+    S: Storage,
+{
+    fn default() -> Self {
+        Self(RwLock::default())
     }
 }
 
