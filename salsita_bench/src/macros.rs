@@ -8,7 +8,7 @@ use salsita::query::Input;
 use salsita::query::Query;
 use salsita::storage::Storage;
 
-pub(crate) trait Op: 'static {
+pub(crate) trait Op: Send + Sync + 'static {
     type Args: Clone + Eq + Hash + Send;
     type Out: Clone + Eq + Hash + Default + Send + Sync;
     fn op(args: Self::Args) -> Self::Out;

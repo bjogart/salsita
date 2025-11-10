@@ -19,9 +19,9 @@ use std::thread;
 struct Counts {
     query_count: usize,
     eval_count: usize,
-    registered_query_ops: usize,
-    stored_values: usize,
-    memo_count: usize,
+    registered_query_ops: isize,
+    stored_values: isize,
+    memo_count: isize,
 }
 
 #[test]
@@ -50,63 +50,7 @@ fn only_dependent_queries_recompute_on_input_change() {
     let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    let discount_price = assert_new_input::<BurritoPrice>(
-        &mut db,
-        4,
-        Counts {
-            query_count: 0,
-            eval_count: 0,
-            registered_query_ops: 0,
-            stored_values: 2,
-            memo_count: 1,
-        },
-    );
-    assert_queries(
-        &db,
-        discount_price,
-        count,
-        burrito_salsa,
-        (
-            6,
-            Counts {
-                query_count: 2,
-                eval_count: 1,
-                registered_query_ops: 0,
-                stored_values: 1,
-                memo_count: 1,
-            },
-        ),
-        (
-            18,
-            Counts {
-                query_count: 3,
-                eval_count: 1,
-                registered_query_ops: 0,
-                stored_values: 2,
-                memo_count: 1,
-            },
-        ),
-        (
-            23,
-            Counts {
-                query_count: 2,
-                eval_count: 1,
-                registered_query_ops: 0,
-                stored_values: 1,
-                memo_count: 1,
-            },
-        ),
-        (
-            120,
-            Counts {
-                query_count: 1,
-                eval_count: 0,
-                registered_query_ops: 0,
-                stored_values: 0,
-                memo_count: 0,
-            },
-        ),
-    );
+    additional_input_queries(&mut db, count, burrito_salsa);
 }
 
 #[test]
@@ -274,6 +218,42 @@ fn modifications_trigger_query_cancellation() {
     handle.join().unwrap();
 }
 
+#[test]
+fn garbage_collection_reclaims_unused_ops_and_storage_and_memos() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let (price, count, burrito_salsa) = init_inputs(&mut db);
+    init_queries(&db, price, count, burrito_salsa);
+    additional_input_queries(&mut db, count, burrito_salsa);
+
+    let before = Counts::new(&db.snapshot());
+    db.gc();
+    let after = Counts::new(&db.snapshot());
+    assert_eq!(
+        after - before,
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: -4,
+            stored_values: -10,
+            memo_count: -7
+        }
+    );
+
+    let before = Counts::new(&db.snapshot());
+    init_queries(&db, price, count, burrito_salsa);
+    let after = Counts::new(&db.snapshot());
+    assert_eq!(
+        after - before,
+        Counts {
+            query_count: 10,
+            eval_count: 4,
+            registered_query_ops: 4,
+            stored_values: 6,
+            memo_count: 4
+        }
+    );
+}
+
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
@@ -315,21 +295,6 @@ fn init_inputs(
         },
     );
     (price, count, burrito_salsa)
-}
-
-fn assert_new_input<I>(
-    db: &mut Db<DefaultStorage, PerfHandler>,
-    value: I::Value,
-    counts: Counts,
-) -> InputId<I>
-where
-    I: Input,
-{
-    let before = Counts::new(&db.snapshot());
-    let input_id = db.new_input::<I>(&value);
-    let after = Counts::new(&db.snapshot());
-    assert_eq!(after - before, counts);
-    input_id
 }
 
 fn init_queries(
@@ -386,6 +351,85 @@ fn init_queries(
     );
 }
 
+fn additional_input_queries(
+    db: &mut Db<DefaultStorage, PerfHandler>,
+    count: InputId<BurritoCount>,
+    burrito_salsa: InputId<SalsaPerBurrito>,
+) {
+    let discount_price = assert_new_input::<BurritoPrice>(
+        db,
+        4,
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: 0,
+            stored_values: 2,
+            memo_count: 1,
+        },
+    );
+    assert_queries(
+        &db,
+        discount_price,
+        count,
+        burrito_salsa,
+        (
+            6,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 1,
+                memo_count: 1,
+            },
+        ),
+        (
+            18,
+            Counts {
+                query_count: 3,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 2,
+                memo_count: 1,
+            },
+        ),
+        (
+            23,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 1,
+                memo_count: 1,
+            },
+        ),
+        (
+            120,
+            Counts {
+                query_count: 1,
+                eval_count: 0,
+                registered_query_ops: 0,
+                stored_values: 0,
+                memo_count: 0,
+            },
+        ),
+    );
+}
+
+fn assert_new_input<I>(
+    db: &mut Db<DefaultStorage, PerfHandler>,
+    value: I::Value,
+    counts: Counts,
+) -> InputId<I>
+where
+    I: Input,
+{
+    let before = Counts::new(&db.snapshot());
+    let input_id = db.new_input::<I>(&value);
+    let after = Counts::new(&db.snapshot());
+    assert_eq!(after - before, counts);
+    input_id
+}
+
 fn assert_queries(
     db: &Db<DefaultStorage, PerfHandler>,
     price: InputId<BurritoPrice>,
@@ -431,12 +475,13 @@ fn assert_query_delta<Q>(
 
 impl Counts {
     fn new(snapshot: &Snapshot<DefaultStorage, PerfHandler>) -> Self {
+        let handler = snapshot.event_handler();
         Self {
-            query_count: snapshot.event_handler().query_count(),
-            eval_count: snapshot.event_handler().eval_count(),
-            registered_query_ops: snapshot.event_handler().registered_query_ops(),
-            stored_values: snapshot.event_handler().stored_values(),
-            memo_count: snapshot.event_handler().memo_count(),
+            query_count: handler.query_count(),
+            eval_count: handler.eval_count(),
+            registered_query_ops: handler.registered_query_ops().try_into().unwrap(),
+            stored_values: handler.stored_values().try_into().unwrap(),
+            memo_count: handler.memo_count().try_into().unwrap(),
         }
     }
 }

@@ -4,22 +4,24 @@ use crate::event;
 use crate::event::Event;
 use crate::event::EventKind;
 use crate::panic_expected_different_type;
+use crate::query::InputId;
 use crate::query::Query;
 use crate::storage::Handle as _;
 use crate::storage::Storage;
+use crate::storage::Transfer as _;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct QueryOpsRegistry<S, H>(RwLock<QueryOpsRegistryInner<S, H>>)
 where
     S: Storage;
 
-#[derive(Debug, Default)]
-struct QueryOpsRegistryInner<S, H>(HashMap<TypeId, QueryOps<S, H>>)
+#[derive(Debug)]
+pub(crate) struct QueryOpsRegistryInner<S, H>(HashMap<TypeId, QueryOps<S, H>>)
 where
     S: Storage;
 
@@ -30,6 +32,7 @@ where
 {
     pub(crate) eval: Eval<S, H>,
     pub(crate) store_output: StoreOut<S, H>,
+    pub(crate) transfer_input_memo_values: TransferInputMemoValues<S>,
 }
 
 type Eval<S, H> =
@@ -37,6 +40,12 @@ type Eval<S, H> =
 
 type StoreOut<S, H> =
     fn(storage: &S, handler: &H, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
+
+type TransferInputMemoValues<S> = fn(
+    transfer: &mut <S as Storage>::Transfer,
+    curr_args_id: <S as Storage>::Id,
+    value_id: <S as Storage>::Id,
+) -> (<S as Storage>::Id, <S as Storage>::Id);
 
 impl<S, H> QueryOpsRegistry<S, H>
 where
@@ -55,6 +64,19 @@ where
 
     pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
         self.0.read().expect(INCONSISTENT_STATE).get(query_id)
+    }
+
+    pub(crate) fn into_inner(self) -> QueryOpsRegistryInner<S, H> {
+        self.0.into_inner().expect(INCONSISTENT_STATE)
+    }
+}
+
+impl<S, H> Default for QueryOpsRegistry<S, H>
+where
+    S: Storage,
+{
+    fn default() -> Self {
+        Self(RwLock::default())
     }
 }
 
@@ -75,8 +97,27 @@ where
         query_id
     }
 
-    fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
+    pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
         self.0.get(&query_id).copied()
+    }
+
+    pub(crate) fn remove(&mut self, handler: &H, query_id: TypeId) {
+        if let Some(_) = self.0.remove(&query_id) {
+            handler.event(Event::new(EventKind::DeregisterQueryOps));
+        }
+    }
+
+    pub(crate) const fn into_registry(self) -> QueryOpsRegistry<S, H> {
+        QueryOpsRegistry(RwLock::new(self))
+    }
+}
+
+impl<S, H> Default for QueryOpsRegistryInner<S, H>
+where
+    S: Storage,
+{
+    fn default() -> Self {
+        Self(HashMap::default())
     }
 }
 
@@ -92,6 +133,7 @@ where
         return Self {
             eval: eval::<S, H, Q>,
             store_output: store_output::<S, H, Q::Out>,
+            transfer_input_memo_values: transfer_input_memo_values::<S, Q>,
         };
 
         fn eval<S, H, Q>(snapshot: &Snapshot<S, H>, args: S::Handle) -> Box<dyn Any + Send + Sync>
@@ -115,6 +157,20 @@ where
                 panic_expected_different_type::<&T>()
             };
             storage.store(handler, out)
+        }
+
+        fn transfer_input_memo_values<S, Q>(
+            transfer: &mut S::Transfer,
+            curr_args_id: S::Id,
+            curr_value_id: S::Id,
+        ) -> (S::Id, S::Id)
+        where
+            Q: Query,
+            S: Storage,
+        {
+            let next_args_id = transfer.transfer::<InputId<Q>>(curr_args_id);
+            let value_id = transfer.transfer::<Q::Out>(curr_value_id);
+            (next_args_id, value_id)
         }
     }
 }
