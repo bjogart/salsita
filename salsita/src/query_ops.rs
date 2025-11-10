@@ -12,15 +12,15 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 
 #[derive(Debug, Default)]
-pub(crate) struct QueryRegistry<S, H>
+pub(crate) struct QueryOpsRegistry<S, H>
 where
     S: Storage,
 {
-    ops: RwLock<HashMap<TypeId, Ops<S, H>>>,
+    ops: RwLock<HashMap<TypeId, QueryOps<S, H>>>,
 }
 
 #[derive(Debug)]
-pub(crate) struct Ops<S, H>
+pub(crate) struct QueryOps<S, H>
 where
     S: Storage,
 {
@@ -33,7 +33,7 @@ type Eval<S, H> =
 
 type StoreOut<S> = fn(storage: &S, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
 
-impl<S, H> QueryRegistry<S, H>
+impl<S, H> QueryOpsRegistry<S, H>
 where
     S: Storage,
     H: event::Handler,
@@ -47,11 +47,11 @@ where
             .write()
             .expect(INCONSISTENT_STATE)
             .entry(query_id)
-            .or_insert_with(Ops::new::<Q>);
+            .or_insert_with(QueryOps::new::<Q>);
         query_id
     }
 
-    pub(crate) fn get(&self, query_id: TypeId) -> Option<Ops<S, H>> {
+    pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
         self.ops
             .read()
             .expect(INCONSISTENT_STATE)
@@ -60,7 +60,7 @@ where
     }
 }
 
-impl<S, H> Ops<S, H>
+impl<S, H> QueryOps<S, H>
 where
     S: Storage,
     H: event::Handler,
@@ -98,7 +98,7 @@ where
     }
 }
 
-impl<S, H> Clone for Ops<S, H>
+impl<S, H> Clone for QueryOps<S, H>
 where
     S: Storage,
 {
@@ -107,4 +107,4 @@ where
     }
 }
 
-impl<S, H> Copy for Ops<S, H> where S: Storage {}
+impl<S, H> Copy for QueryOps<S, H> where S: Storage {}

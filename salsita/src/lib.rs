@@ -1,17 +1,21 @@
 extern crate alloc;
 
+use crate::barrier::ExclusiveBarrier;
 use crate::event::ScopedEvent;
-use crate::gate::WriteGate;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
-use crate::registry::Ops;
-use crate::registry::QueryRegistry;
+use crate::query_ops::QueryOps;
+use crate::query_ops::QueryOpsRegistry;
 use crate::storage::DefaultStorage;
 use crate::storage::Downcast;
 use crate::storage::Storage;
+use crate::update::MemoUpdate;
+use crate::update::PendingChange;
+use crate::update::PendingCommit;
+use crate::update::QueryUpdate;
 use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
@@ -21,14 +25,15 @@ use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 
+mod barrier;
 pub mod event;
-mod gate;
-pub mod memo;
+pub(crate) mod memo;
 pub mod query;
-mod registry;
+mod query_ops;
 pub mod storage;
 #[cfg(test)]
 mod tests;
+mod update;
 
 const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
 
@@ -39,8 +44,8 @@ where
 {
     global: Arc<GlobalState<S, H>>,
     /// This field must drop after `global` to prevent deadlocks; see
-    /// [`WriteGate`] for information.
-    gate: WriteGate,
+    /// [`ExclusiveBarrier`] for information.
+    barrier: ExclusiveBarrier,
 }
 
 #[derive(Debug)]
@@ -61,7 +66,7 @@ where
     should_cancel: AtomicBool,
     storage: S,
     memos: Memos<S>,
-    registry: QueryRegistry<S, H>,
+    query_ops: QueryOpsRegistry<S, H>,
     event_handler: H,
 }
 
@@ -84,44 +89,6 @@ where
     deps: Vec<MemoId<S>>,
 }
 
-#[must_use]
-struct QueryUpdate<'snap, S, H>
-where
-    S: Storage,
-    H: event::Handler,
-{
-    snapshot: &'snap Snapshot<S, H>,
-    commit: PendingCommit<S>,
-}
-
-#[must_use]
-struct MemoUpdate<'memos, S>
-where
-    S: Storage,
-{
-    memos: &'memos Memos<S>,
-    commit: PendingCommit<S>,
-}
-
-#[must_use]
-struct PendingCommit<S>
-where
-    S: Storage,
-{
-    current_rev: Revision,
-    memo_id: MemoId<S>,
-    change: Option<PendingChange<S>>,
-}
-
-#[must_use]
-struct PendingChange<S>
-where
-    S: Storage,
-{
-    value_id: S::Id,
-    deps: Option<Vec<MemoId<S>>>,
-}
-
 impl<S, H> Db<S, H>
 where
     S: Storage,
@@ -137,7 +104,7 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self.global.registry.query_id::<I>();
+        let query_id = self.global.query_ops.query_id::<I>();
         let value_id = self.global.storage.store(value);
         self.global.storage.store_input_id(|args_id| {
             let memo_id = self
@@ -153,7 +120,7 @@ where
         I: Input,
     {
         self.global.should_cancel.store(true, Ordering::Release);
-        self.gate.wait_for_write_access(&mut self.global);
+        self.barrier.wait_for_exclusive_access(&mut self.global);
         self.global.should_cancel.store(false, Ordering::Release);
 
         let current_rev = self.global.rev.bump();
@@ -168,7 +135,7 @@ where
         Snapshot {
             db: Self {
                 global: Arc::clone(&self.global),
-                gate: self.gate.clone(),
+                barrier: self.barrier.clone(),
             },
             active_queries: RefCell::default(),
         }
@@ -190,7 +157,7 @@ where
         Q: Query<S>,
     {
         let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
-        let query_id = self.global.registry.query_id::<Q>();
+        let query_id = self.global.query_ops.query_id::<Q>();
         let args_id = self.global.storage.store(args);
         let memo_id = self.global.memos.memo_id(query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
@@ -224,9 +191,9 @@ where
     }
 
     fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
-        let Ops { eval, store_output } = self
+        let QueryOps { eval, store_output } = self
             .global
-            .registry
+            .query_ops
             .get(memo_id.query_id())
             .expect("bug: query not registered");
         let args = self.global.storage.get(memo_id.args());
@@ -300,103 +267,6 @@ where
     fn default() -> Self {
         Self {
             deps: Vec::default(),
-        }
-    }
-}
-
-impl<'snap, S, H> QueryUpdate<'snap, S, H>
-where
-    S: Storage,
-    H: event::Handler,
-{
-    const fn new(snapshot: &'snap Snapshot<S, H>, commit: PendingCommit<S>) -> Self {
-        Self { snapshot, commit }
-    }
-}
-
-impl<S, H> Drop for QueryUpdate<'_, S, H>
-where
-    S: Storage,
-    H: event::Handler,
-{
-    fn drop(&mut self) {
-        let Self { snapshot, commit } = self;
-        let mut active_queries = snapshot.active_queries.borrow_mut();
-        let ActiveQueryStack(active_queries) = &mut *active_queries;
-        if let Some(change) = commit.change.as_mut()
-            && let Some(ActiveQuery { deps }) = active_queries.pop()
-        {
-            change.deps = Some(deps);
-        }
-        let _update = MemoUpdate::new(&snapshot.db.global.memos, commit.take());
-    }
-}
-
-impl<'memos, S> MemoUpdate<'memos, S>
-where
-    S: Storage,
-{
-    const fn new(memos: &'memos Memos<S>, commit: PendingCommit<S>) -> Self {
-        Self { memos, commit }
-    }
-}
-
-impl<S> Drop for MemoUpdate<'_, S>
-where
-    S: Storage,
-{
-    fn drop(&mut self) {
-        let Self {
-            memos,
-            commit:
-                PendingCommit {
-                    current_rev,
-                    memo_id,
-                    change,
-                },
-        } = self;
-        memos.memo_mut(*memo_id, |memo| {
-            memo.last_verified = *current_rev;
-            if let Some(PendingChange { deps, value_id }) = change.take() {
-                memo.value_id = Some(value_id);
-                memo.last_changed = *current_rev;
-                if let Some(deps) = deps {
-                    memo.deps = deps;
-                }
-            }
-        });
-    }
-}
-
-impl<S> PendingCommit<S>
-where
-    S: Storage,
-{
-    const fn new(current_rev: Revision, memo_id: MemoId<S>) -> Self {
-        Self {
-            current_rev,
-            memo_id,
-            change: None,
-        }
-    }
-
-    const fn take(&mut self) -> Self {
-        Self {
-            change: self.change.take(),
-            current_rev: self.current_rev,
-            memo_id: self.memo_id,
-        }
-    }
-}
-
-impl<S> PendingChange<S>
-where
-    S: Storage,
-{
-    const fn new(value_id: S::Id) -> Self {
-        Self {
-            value_id,
-            deps: None,
         }
     }
 }
