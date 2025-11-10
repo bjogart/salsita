@@ -3,7 +3,7 @@ use crate::Snapshot;
 use crate::event;
 use crate::panic_expected_different_type;
 use crate::query::Query;
-use crate::storage::Downcast as _;
+use crate::storage::Handle as _;
 use crate::storage::Storage;
 use core::any::Any;
 use core::any::TypeId;
@@ -29,7 +29,7 @@ where
 }
 
 type Eval<S, H> =
-    fn(snapshot: &Snapshot<S, H>, args: <S as Storage>::Value) -> Box<dyn Any + Send + Sync>;
+    fn(snapshot: &Snapshot<S, H>, args: <S as Storage>::Handle) -> Box<dyn Any + Send + Sync>;
 
 type StoreOut<S> = fn(storage: &S, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
 
@@ -40,7 +40,7 @@ where
 {
     pub(crate) fn query_id<Q>(&self) -> TypeId
     where
-        Q: Query<S>,
+        Q: Query,
     {
         let query_id = TypeId::of::<Q>();
         self.ops
@@ -67,21 +67,21 @@ where
 {
     fn new<Q>() -> Self
     where
-        Q: Query<S>,
+        Q: Query,
     {
         return Self {
             eval: eval::<Q, H, S>,
             store_output: store_output::<S, Q::Out>,
         };
 
-        fn eval<Q, H, S>(snapshot: &Snapshot<S, H>, args: S::Value) -> Box<dyn Any + Send + Sync>
+        fn eval<Q, H, S>(snapshot: &Snapshot<S, H>, args: S::Handle) -> Box<dyn Any + Send + Sync>
         where
             H: event::Handler,
-            Q: Query<S>,
+            Q: Query,
             S: Storage,
         {
             let args = args.downcast::<Q::Args>();
-            let out = Q::eval(snapshot, args.as_ref());
+            let out = Q::eval(snapshot, &args);
             Box::new(out)
         }
 

@@ -6,6 +6,7 @@ use crate::query::Input;
 use crate::query::InputId;
 use crate::query::Query;
 use crate::storage::DefaultStorage;
+use crate::storage::Storage;
 use core::fmt::Debug;
 use std::sync::Arc;
 use std::sync::Condvar;
@@ -263,8 +264,9 @@ impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler,
     {
         Some(*snapshot.query::<BurritoPrice>(args) + 2)
@@ -281,8 +283,9 @@ impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler,
     {
         let (price, count) = args;
@@ -298,8 +301,9 @@ impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler,
     {
         Some((*snapshot.query::<TotalPrice>(args))? + 5)
@@ -316,8 +320,9 @@ impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
     type Out = Option<usize>;
 
-    fn eval<H>(snapshot: &Snapshot<DefaultStorage, H>, args: &Self::Args) -> Self::Out
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler,
     {
         let (burrito_salsa, count) = args;

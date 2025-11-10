@@ -6,6 +6,7 @@ use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
 use core::num::NonZeroUsize;
+use core::ops::Deref;
 use std::collections::HashMap;
 use std::hash::RandomState;
 use std::sync::RwLock;
@@ -14,19 +15,19 @@ const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by anothe
 
 pub trait Storage: Default + 'static {
     type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
-    type Value: Debug + Downcast;
+    type Handle: Debug + Handle;
 
     fn store<T>(&self, value: &T) -> Self::Id
     where
         T: Clone + Eq + Hash + Send + Sync + 'static;
 
-    fn get(&self, id: Self::Id) -> Self::Value;
+    fn get(&self, id: Self::Id) -> Self::Handle;
 }
 
-pub trait Downcast {
-    type Downcast<T>: AsRef<T>;
+pub trait Handle {
+    type TypedHandle<T>: Deref<Target = T>;
 
-    fn downcast<T>(self) -> Self::Downcast<T>
+    fn downcast<T>(self) -> Self::TypedHandle<T>
     where
         T: Send + Sync + 'static;
 }
@@ -53,7 +54,7 @@ pub struct DefaultStorageId(NonZeroUsize);
 impl Storage for DefaultStorage {
     type Id = DefaultStorageId;
 
-    type Value = Arc<dyn Any + Send + Sync>;
+    type Handle = Arc<dyn Any + Send + Sync>;
 
     fn store<T>(&self, value: &T) -> Self::Id
     where
@@ -70,7 +71,7 @@ impl Storage for DefaultStorage {
             .unwrap_or_else(|| Self::insert_value(bucket, values, value))
     }
 
-    fn get(&self, id: Self::Id) -> Self::Value {
+    fn get(&self, id: Self::Id) -> Self::Handle {
         Arc::clone(Self::get_ref(
             &self.0.read().expect(INCONSISTENT_STATE).values,
             id,
@@ -141,10 +142,10 @@ impl DefaultStorageId {
     }
 }
 
-impl Downcast for Arc<dyn Any + Send + Sync> {
-    type Downcast<T> = Arc<T>;
+impl Handle for Arc<dyn Any + Send + Sync> {
+    type TypedHandle<T> = Arc<T>;
 
-    fn downcast<T>(self) -> Self::Downcast<T>
+    fn downcast<T>(self) -> Self::TypedHandle<T>
     where
         T: Send + Sync + 'static,
     {

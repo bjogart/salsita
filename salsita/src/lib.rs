@@ -11,7 +11,7 @@ use crate::query::Query;
 use crate::query_ops::QueryOps;
 use crate::query_ops::QueryOpsRegistry;
 use crate::storage::DefaultStorage;
-use crate::storage::Downcast;
+use crate::storage::Handle;
 use crate::storage::Storage;
 use crate::update::MemoUpdate;
 use crate::update::PendingChange;
@@ -152,9 +152,9 @@ where
     S: Storage,
     H: event::Handler,
 {
-    pub fn query<Q>(&self, args: &Q::Args) -> <S::Value as Downcast>::Downcast<Q::Out>
+    pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
-        Q: Query<S>,
+        Q: Query,
     {
         let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
         let query_id = self.global.query_ops.query_id::<Q>();
@@ -239,15 +239,15 @@ where
         }
     }
 
-    fn memoized_value<Q>(&self, memo_id: MemoId<S>) -> <S::Value as Downcast>::Downcast<Q::Out>
+    fn memoized_value<Q>(&self, memo_id: MemoId<S>) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
-        Q: Query<S>,
+        Q: Query,
     {
         let value_id = self.global.memos.memo(memo_id, |memo| {
             memo.value_id
                 .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
         });
-        Downcast::downcast::<Q::Out>(self.global.storage.get(value_id))
+        Handle::downcast::<Q::Out>(self.global.storage.get(value_id))
     }
 }
 

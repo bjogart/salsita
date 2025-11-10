@@ -2,7 +2,6 @@ use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::event;
 use crate::memo::MemoId;
-use crate::storage::DefaultStorage;
 use crate::storage::Storage;
 use core::fmt;
 use core::fmt::Debug;
@@ -13,16 +12,16 @@ use core::marker::PhantomData;
 use core::num::NonZeroUsize;
 use std::sync::RwLock;
 
-pub trait Query<S = DefaultStorage>
+pub trait Query
 where
     Self: 'static,
-    S: Storage,
 {
     type Args: Clone + Eq + Hash + Send + Sync + 'static;
     type Out: Clone + Eq + Hash + Send + Sync + 'static;
 
-    fn eval<H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler;
 }
 
@@ -39,17 +38,17 @@ pub struct InputId<I>(NonZeroUsize, PhantomData<I>)
 where
     I: Input;
 
-impl<I, S> Query<S> for I
+impl<I> Query for I
 where
     I: Input,
-    S: Storage,
 {
     type Args = InputId<Self>;
 
     type Out = <Self as Input>::Value;
 
-    fn eval<H>(_: &Snapshot<S, H>, _: &Self::Args) -> Self::Out
+    fn eval<S, H>(_: &Snapshot<S, H>, _: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler,
     {
         panic!("Inputs should be defined through `Db::{{new,set}}_input()`, not evaluated")

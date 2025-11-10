@@ -13,17 +13,9 @@ use std::sync::RwLock;
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug, Default)]
-pub(crate) struct Memos<S>(RwLock<MemosInner<S>>)
+pub(crate) struct Memos<S>(RwLock<HashMap<MemoId<S>, RwLock<MemoEntry<S>>>>)
 where
     S: Storage;
-
-#[derive(Debug, Default)]
-struct MemosInner<S>
-where
-    S: Storage,
-{
-    memos: HashMap<MemoId<S>, RwLock<MemoEntry<S>>>,
-}
 
 pub(crate) struct MemoId<S>
 where
@@ -63,7 +55,6 @@ where
         self.0
             .write()
             .expect(INCONSISTENT_STATE)
-            .memos
             .insert(memo_id, RwLock::new(entry));
         memo_id
     }
@@ -73,7 +64,6 @@ where
         self.0
             .write()
             .expect(INCONSISTENT_STATE)
-            .memos
             .entry(memo_id)
             .or_insert_with(|| RwLock::new(MemoEntry::new()));
         memo_id
@@ -84,7 +74,6 @@ where
             .0
             .read()
             .expect(INCONSISTENT_STATE)
-            .memos
             .get(&id)
             .expect(UNKNOWN_ID)
             .write()
@@ -96,7 +85,6 @@ where
             .0
             .read()
             .expect(INCONSISTENT_STATE)
-            .memos
             .get(&id)
             .expect(UNKNOWN_ID)
             .read()

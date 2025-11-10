@@ -18,22 +18,22 @@ macro_rules! impl_dep {
     ($name:ident { input: $input:ident, deps: [$($dep:ident),*$(,)?]$(,)? }$(,)?) => {
         pub(crate) struct $name<O, $($dep,)*>(PhantomData<(O, $($dep),*)>);
 
-        impl<S, O, $($dep,)*> Query<S> for $name<O, $($dep,)*>
+        impl<O, $($dep,)*> Query for $name<O, $($dep,)*>
         where
-            S: Storage,
             O: Op<Args = $input<$($dep::Out),*>>,
-            $($dep: Query<S>,)*
+            $($dep: Query,)*
         {
             type Args = $input<$($dep::Args),*>;
             type Out = O::Out;
 
-            fn eval<H>(snapshot: &Snapshot<S,H>, args: &Self::Args) -> Self::Out
+            fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
             where
+                S: Storage,
                 H: event::Handler,
             {
                 let $input($($dep,)*) = args;
                 $(let $dep = snapshot.query::<$dep>($dep);)*
-                O::op($input($($dep.as_ref().clone()),*))
+                O::op($input($($dep.clone()),*))
             }
         }
     };
@@ -89,20 +89,20 @@ macro_rules! impl_inp {
 
 pub(crate) struct Dep1<O, D>(PhantomData<(O, D)>);
 
-impl<S, O, D> Query<S> for Dep1<O, D>
+impl<O, D> Query for Dep1<O, D>
 where
-    S: Storage,
     O: Op<Args = D::Out>,
-    D: Query<S>,
+    D: Query,
 {
     type Args = D::Args;
     type Out = O::Out;
 
-    fn eval<H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
+        S: Storage,
         H: event::Handler,
     {
-        let d = snapshot.query::<D>(args).as_ref().clone();
+        let d = snapshot.query::<D>(args).clone();
         O::op(d)
     }
 }
