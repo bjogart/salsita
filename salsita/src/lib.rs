@@ -45,7 +45,7 @@ pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to
 const GLOBAL_NOT_EXCLUSIVE: &str = "bug: `self.global` should be uniquely owned at this point";
 const QUERY_NOT_REGISTERED: &str = "bug: query not registered";
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Db<S = DefaultStorage, H = ()>
 where
     S: Storage,
@@ -65,7 +65,7 @@ where
     active_queries: RefCell<ActiveQueryStack<S>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct GlobalState<S, H>
 where
     S: Storage,
@@ -76,7 +76,7 @@ where
     storage: S,
     memos: Memos<S>,
     query_ops: QueryOpsRegistry<S, H>,
-    event_handler: H,
+    handler: H,
 }
 
 #[derive(Debug)]
@@ -101,30 +101,24 @@ where
 impl<S, H> Db<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     #[must_use]
     pub fn event_handler(&self) -> &H {
-        &self.global.event_handler
+        &self.global.handler
     }
 
     pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
     where
+        H: event::Handler,
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self
-            .global
-            .query_ops
-            .query_id::<I>(&self.global.event_handler);
-        let value_id = self.global.storage.store(&self.global.event_handler, value);
+        let query_id = self.global.query_ops.query_id::<I>(&self.global.handler);
+        let value_id = self.global.storage.store(&self.global.handler, value);
         self.global.inputs.new_input(|input_id| {
-            let dummy_args_id = self
-                .global
-                .storage
-                .store(&self.global.event_handler, &input_id);
+            let dummy_args_id = self.global.storage.store(&self.global.handler, &input_id);
             self.global.memos.new_input(
-                &self.global.event_handler,
+                &self.global.handler,
                 rev,
                 query_id,
                 dummy_args_id,
@@ -135,6 +129,7 @@ where
 
     pub fn set_input<I>(&mut self, input_id: InputId<I>, value: &I::Value)
     where
+        H: event::Handler,
         I: Input,
     {
         self.global.should_cancel.store(true, Ordering::Release);
@@ -145,7 +140,7 @@ where
         let current_rev = global.rev.bump();
         let args_id = global.inputs.memo_id(input_id);
         let mut commit = PendingCommit::new(current_rev, args_id);
-        let value_id = global.storage.store(&global.event_handler, value);
+        let value_id = global.storage.store(&global.handler, value);
         commit.change = Some(PendingChange::new(value_id));
         let _update = MemoUpdate::new(&global.memos, commit);
     }
@@ -161,7 +156,10 @@ where
         }
     }
 
-    pub fn gc(&mut self) {
+    pub fn gc(&mut self)
+    where
+        H: event::Handler,
+    {
         self.barrier.wait_for_exclusive_access(&mut self.global);
         let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
 
@@ -172,12 +170,12 @@ where
             .filter_map(|(mut memo_id, mut memo)| {
                 // Memos with dependencies are not inputs by definition.
                 if !memo.deps.is_empty() {
-                    return ignore_memo(&global.event_handler, &mut query_ops_inner, memo_id);
+                    return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
                 }
                 // Memos without dependencies and without a value are derived
                 // queries that have never been evaluated, not inputs.
                 let Some(value_id) = memo.value_id else {
-                    return ignore_memo(&global.event_handler, &mut query_ops_inner, memo_id);
+                    return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
                 };
 
                 let ops = query_ops_inner
@@ -197,7 +195,7 @@ where
         let _dummy_query_ops = mem::replace(&mut global.query_ops, query_ops_inner.into_registry());
         let _dummy_storage = mem::replace(
             &mut global.storage,
-            storage_transfer.into_storage(&global.event_handler),
+            storage_transfer.into_storage(&global.handler),
         );
         let _dummy_memos = mem::replace(&mut global.memos, memos);
 
@@ -222,33 +220,46 @@ where
     }
 }
 
+impl<S, H> Default for Db<S, H>
+where
+    S: Storage,
+    H: Default,
+{
+    fn default() -> Self {
+        Self {
+            global: Arc::default(),
+            barrier: ExclusiveBarrier::default(),
+        }
+    }
+}
+
 impl<S, H> Snapshot<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
+        H: event::Handler,
         Q: Query,
     {
         let _query_guard = &self
             .global
-            .event_handler
+            .handler
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
-        let query_id = self
-            .global
-            .query_ops
-            .query_id::<Q>(&self.global.event_handler);
-        let args_id = self.global.storage.store(&self.global.event_handler, args);
+        let query_id = self.global.query_ops.query_id::<Q>(&self.global.handler);
+        let args_id = self.global.storage.store(&self.global.handler, args);
         let memo_id = self
             .global
             .memos
-            .memo_id(&self.global.event_handler, query_id, args_id);
+            .memo_id(&self.global.handler, query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
 
-    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
+    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>)
+    where
+        H: event::Handler,
+    {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self
@@ -274,7 +285,10 @@ where
         self.eval_memo(current_rev, memo_id);
     }
 
-    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
+    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>)
+    where
+        H: event::Handler,
+    {
         let ops = self
             .global
             .query_ops
@@ -285,15 +299,11 @@ where
         let out = {
             let _eval_guard = &self
                 .global
-                .event_handler
+                .handler
                 .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             (ops.eval)(self, args)
         };
-        let out = (ops.store_output)(
-            &self.global.storage,
-            &self.global.event_handler,
-            out.as_ref(),
-        );
+        let out = (ops.store_output)(&self.global.storage, &self.global.handler, out.as_ref());
         if let Some(prev) = self.global.memos.memo(memo_id, |memo| memo.value_id)
             && out == prev
         {
@@ -307,14 +317,20 @@ where
         current_rev: Revision,
         memo_last_verified: Revision,
         dep: MemoId<S>,
-    ) -> bool {
+    ) -> bool
+    where
+        H: event::Handler,
+    {
         self.verify_memo(current_rev, dep);
         self.global
             .memos
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
-    fn install_query(&self, current_rev: Revision, memo_id: MemoId<S>) -> QueryUpdate<'_, S, H> {
+    fn install_query(&self, current_rev: Revision, memo_id: MemoId<S>) -> QueryUpdate<'_, S, H>
+    where
+        H: event::Handler,
+    {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
@@ -342,6 +358,35 @@ where
     }
 }
 
+impl<S, H> Deref for Snapshot<S, H>
+where
+    S: Storage,
+{
+    type Target = Db<S, H>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.db
+    }
+}
+
+impl<S, H> Default for GlobalState<S, H>
+where
+    S: Storage,
+    H: Default,
+{
+    fn default() -> Self {
+        Self {
+            rev: GlobalRevision::default(),
+            should_cancel: AtomicBool::default(),
+            inputs: InputRegistry::default(),
+            storage: S::default(),
+            memos: Memos::default(),
+            query_ops: QueryOpsRegistry::default(),
+            handler: H::default(),
+        }
+    }
+}
+
 impl<S> Default for ActiveQueryStack<S>
 where
     S: Storage,
@@ -359,17 +404,6 @@ where
         Self {
             deps: Vec::default(),
         }
-    }
-}
-
-impl<S, H> Deref for Snapshot<S, H>
-where
-    S: Storage,
-{
-    type Target = Db<S, H>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.db
     }
 }
 

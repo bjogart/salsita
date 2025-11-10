@@ -50,10 +50,10 @@ type TransferInputMemoValues<S> = fn(
 impl<S, H> QueryOpsRegistry<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     pub(crate) fn query_id<Q>(&self, handler: &H) -> TypeId
     where
+        H: event::Handler,
         Q: Query,
     {
         self.0
@@ -62,7 +62,10 @@ where
             .query_id::<Q>(handler)
     }
 
-    pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
+    pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>>
+    where
+        H: event::Handler,
+    {
         self.0.read().expect(INCONSISTENT_STATE).get(query_id)
     }
 
@@ -83,10 +86,10 @@ where
 impl<S, H> QueryOpsRegistryInner<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     fn query_id<Q>(&mut self, handler: &H) -> TypeId
     where
+        H: event::Handler,
         Q: Query,
     {
         let query_id = TypeId::of::<Q>();
@@ -101,7 +104,10 @@ where
         self.0.get(&query_id).copied()
     }
 
-    pub(crate) fn remove(&mut self, handler: &H, query_id: TypeId) {
+    pub(crate) fn remove(&mut self, handler: &H, query_id: TypeId)
+    where
+        H: event::Handler,
+    {
         if let Some(_) = self.0.remove(&query_id) {
             handler.event(Event::new(EventKind::DeregisterQueryOps));
         }
@@ -124,10 +130,10 @@ where
 impl<S, H> QueryOps<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     fn new<Q>() -> Self
     where
+        H: event::Handler,
         Q: Query,
     {
         return Self {

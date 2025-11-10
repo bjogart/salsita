@@ -26,7 +26,7 @@ pub trait Input: Send + Sync + 'static {
     type Value: Clone + Eq + Hash + Send + Sync;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct InputRegistry<S>(RwLock<Vec<MemoId<S>>>)
 where
     S: Storage;
@@ -74,6 +74,15 @@ where
             .expect(INCONSISTENT_STATE)
             .get(idx)
             .expect("bug: unknown input ID (was this ID created by another database?)")
+    }
+}
+
+impl<S> Default for InputRegistry<S>
+where
+    S: Storage,
+{
+    fn default() -> Self {
+        Self(RwLock::default())
     }
 }
 
