@@ -250,8 +250,8 @@ fn modifications_trigger_query_cancellation() {
             while !snapshot.should_cancel() {
                 thread::yield_now();
             }
-            // Calling the same query will immediately return the memoized
-            // value.
+            // Calling a query while the database canceling automatically
+            // returns a memoized value and will not evaluate.
             assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), (10));
         }
     });
