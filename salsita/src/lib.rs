@@ -76,7 +76,7 @@ where
     storage: S,
     memos: Memos<S>,
     query_ops: QueryOpsRegistry<S, H>,
-    event_handler: H,
+    handler: H,
 }
 
 #[derive(Debug)]
@@ -104,7 +104,7 @@ where
 {
     #[must_use]
     pub fn event_handler(&self) -> &H {
-        &self.global.event_handler
+        &self.global.handler
     }
 
     pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
@@ -113,18 +113,12 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self
-            .global
-            .query_ops
-            .query_id::<I>(&self.global.event_handler);
-        let value_id = self.global.storage.store(&self.global.event_handler, value);
+        let query_id = self.global.query_ops.query_id::<I>(&self.global.handler);
+        let value_id = self.global.storage.store(&self.global.handler, value);
         self.global.inputs.new_input(|input_id| {
-            let dummy_args_id = self
-                .global
-                .storage
-                .store(&self.global.event_handler, &input_id);
+            let dummy_args_id = self.global.storage.store(&self.global.handler, &input_id);
             self.global.memos.new_input(
-                &self.global.event_handler,
+                &self.global.handler,
                 rev,
                 query_id,
                 dummy_args_id,
@@ -146,7 +140,7 @@ where
         let current_rev = global.rev.bump();
         let args_id = global.inputs.memo_id(input_id);
         let mut commit = PendingCommit::new(current_rev, args_id);
-        let value_id = global.storage.store(&global.event_handler, value);
+        let value_id = global.storage.store(&global.handler, value);
         commit.change = Some(PendingChange::new(value_id));
         let _update = MemoUpdate::new(&global.memos, commit);
     }
@@ -176,12 +170,12 @@ where
             .filter_map(|(mut memo_id, mut memo)| {
                 // Memos with dependencies are not inputs by definition.
                 if !memo.deps.is_empty() {
-                    return ignore_memo(&global.event_handler, &mut query_ops_inner, memo_id);
+                    return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
                 }
                 // Memos without dependencies and without a value are derived
                 // queries that have never been evaluated, not inputs.
                 let Some(value_id) = memo.value_id else {
-                    return ignore_memo(&global.event_handler, &mut query_ops_inner, memo_id);
+                    return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
                 };
 
                 let ops = query_ops_inner
@@ -201,7 +195,7 @@ where
         let _dummy_query_ops = mem::replace(&mut global.query_ops, query_ops_inner.into_registry());
         let _dummy_storage = mem::replace(
             &mut global.storage,
-            storage_transfer.into_storage(&global.event_handler),
+            storage_transfer.into_storage(&global.handler),
         );
         let _dummy_memos = mem::replace(&mut global.memos, memos);
 
@@ -250,17 +244,14 @@ where
     {
         let _query_guard = &self
             .global
-            .event_handler
+            .handler
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
-        let query_id = self
-            .global
-            .query_ops
-            .query_id::<Q>(&self.global.event_handler);
-        let args_id = self.global.storage.store(&self.global.event_handler, args);
+        let query_id = self.global.query_ops.query_id::<Q>(&self.global.handler);
+        let args_id = self.global.storage.store(&self.global.handler, args);
         let memo_id = self
             .global
             .memos
-            .memo_id(&self.global.event_handler, query_id, args_id);
+            .memo_id(&self.global.handler, query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
@@ -308,15 +299,11 @@ where
         let out = {
             let _eval_guard = &self
                 .global
-                .event_handler
+                .handler
                 .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             (ops.eval)(self, args)
         };
-        let out = (ops.store_output)(
-            &self.global.storage,
-            &self.global.event_handler,
-            out.as_ref(),
-        );
+        let out = (ops.store_output)(&self.global.storage, &self.global.handler, out.as_ref());
         if let Some(prev) = self.global.memos.memo(memo_id, |memo| memo.value_id)
             && out == prev
         {
@@ -395,7 +382,7 @@ where
             storage: S::default(),
             memos: Memos::default(),
             query_ops: QueryOpsRegistry::default(),
-            event_handler: H::default(),
+            handler: H::default(),
         }
     }
 }
