@@ -2,6 +2,8 @@ use core::sync::atomic::AtomicU64;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use core::time::Duration;
+use std::thread;
+use std::thread::ThreadId;
 use std::time::Instant;
 
 const VALUE_ALREADY_TAKEN: &str = "bug: guard payload already taken";
@@ -11,6 +13,8 @@ where
     Self: Sized,
 {
     type Payload;
+
+    fn event(&self, event: Event);
 
     fn scoped_event(&self, event: ScopedEvent) -> ScopeGuard<'_, Self> {
         ScopeGuard {
@@ -25,7 +29,26 @@ where
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum ScopedEvent {
+pub struct Event {
+    pub thread_id: ThreadId,
+    pub kind: EventKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum EventKind {
+    RegisterQueryOps,
+    StoreValue,
+    RegisterMemo,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ScopedEvent {
+    pub thread_id: ThreadId,
+    pub kind: ScopedEventKind,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ScopedEventKind {
     Query,
     Eval,
 }
@@ -45,6 +68,9 @@ pub struct PerfHandler {
     eval_time: AtomicDuration,
     query_count: AtomicUsize,
     eval_count: AtomicUsize,
+    registered_query_ops: AtomicUsize,
+    stored_values: AtomicUsize,
+    memo_count: AtomicUsize,
 }
 
 #[derive(Debug, Default)]
@@ -53,22 +79,36 @@ pub struct AtomicDuration {
 }
 
 impl Handler for PerfHandler {
-    type Payload = (ScopedEvent, Instant);
+    type Payload = (ScopedEventKind, Instant);
+
+    fn event(&self, event: Event) {
+        match event.kind {
+            EventKind::RegisterQueryOps => {
+                self.registered_query_ops.fetch_add(1, Ordering::Relaxed);
+            }
+            EventKind::StoreValue => {
+                self.stored_values.fetch_add(1, Ordering::Relaxed);
+            }
+            EventKind::RegisterMemo => {
+                self.memo_count.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
 
     fn enter_scope(&self, event: ScopedEvent) -> Self::Payload {
-        match event {
-            ScopedEvent::Query => self.query_count.fetch_add(1, Ordering::Relaxed),
-            ScopedEvent::Eval => self.eval_count.fetch_add(1, Ordering::Relaxed),
+        match event.kind {
+            ScopedEventKind::Query => self.query_count.fetch_add(1, Ordering::Relaxed),
+            ScopedEventKind::Eval => self.eval_count.fetch_add(1, Ordering::Relaxed),
         };
-        (event, Instant::now())
+        (event.kind, Instant::now())
     }
 
     fn exit_scope(&self, payload: Self::Payload) {
-        let (event, start) = payload;
+        let (kind, start) = payload;
         let elapsed = start.elapsed();
-        match event {
-            ScopedEvent::Query => self.query_time.add(elapsed),
-            ScopedEvent::Eval => self.eval_time.add(elapsed),
+        match kind {
+            ScopedEventKind::Query => self.query_time.add(elapsed),
+            ScopedEventKind::Eval => self.eval_time.add(elapsed),
         }
     }
 }
@@ -84,11 +124,17 @@ impl PerfHandler {
             eval_time,
             query_count,
             eval_count,
+            registered_query_ops,
+            stored_values,
+            memo_count,
         } = self;
         query_time.reset();
         eval_time.reset();
         query_count.store(0, Ordering::Relaxed);
         eval_count.store(0, Ordering::Relaxed);
+        registered_query_ops.store(0, Ordering::Relaxed);
+        stored_values.store(0, Ordering::Relaxed);
+        memo_count.store(0, Ordering::Relaxed);
     }
 
     pub fn query_time(&self) -> Duration {
@@ -106,14 +152,46 @@ impl PerfHandler {
     pub fn eval_count(&self) -> usize {
         self.eval_count.load(Ordering::Relaxed)
     }
+
+    pub fn registered_query_ops(&self) -> usize {
+        self.registered_query_ops.load(Ordering::Relaxed)
+    }
+
+    pub fn stored_values(&self) -> usize {
+        self.stored_values.load(Ordering::Relaxed)
+    }
+
+    pub fn memo_count(&self) -> usize {
+        self.memo_count.load(Ordering::Relaxed)
+    }
 }
 
 impl Handler for () {
     type Payload = ();
 
+    fn event(&self, _: Event) {}
+
     fn enter_scope(&self, _: ScopedEvent) -> Self::Payload {}
 
     fn exit_scope(&self, (): Self::Payload) {}
+}
+
+impl Event {
+    pub(crate) fn new(kind: EventKind) -> Self {
+        Self {
+            thread_id: thread::current().id(),
+            kind,
+        }
+    }
+}
+
+impl ScopedEvent {
+    pub(crate) fn new(kind: ScopedEventKind) -> Self {
+        Self {
+            thread_id: thread::current().id(),
+            kind,
+        }
+    }
 }
 
 impl<H> Drop for ScopeGuard<'_, H>

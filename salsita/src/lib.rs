@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::barrier::ExclusiveBarrier;
 use crate::event::ScopedEvent;
+use crate::event::ScopedEventKind;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
@@ -106,10 +107,16 @@ where
         I: Input,
     {
         let rev = self.global.rev.get();
-        let query_id = self.global.query_ops.query_id::<I>();
-        let value_id = self.global.storage.store(value);
+        let query_id = self
+            .global
+            .query_ops
+            .query_id::<I>(&self.global.event_handler);
+        let value_id = self.global.storage.store(&self.global.event_handler, value);
         self.global.inputs.new_input(|input_id| {
-            let dummy_args_id = self.global.storage.store(&input_id);
+            let dummy_args_id = self
+                .global
+                .storage
+                .store(&self.global.event_handler, &input_id);
             self.global
                 .memos
                 .new_input(rev, query_id, dummy_args_id, value_id)
@@ -126,7 +133,9 @@ where
 
         let current_rev = self.global.rev.bump();
         let mut commit = PendingCommit::new(current_rev, self.global.inputs.memo_id(input_id));
-        commit.change = Some(PendingChange::new(self.global.storage.store(value)));
+        commit.change = Some(PendingChange::new(
+            self.global.storage.store(&self.global.event_handler, value),
+        ));
         let _update = MemoUpdate::new(&self.global.memos, commit);
     }
 
@@ -156,10 +165,19 @@ where
     where
         Q: Query,
     {
-        let _query_guard = self.global.event_handler.scoped_event(ScopedEvent::Query);
-        let query_id = self.global.query_ops.query_id::<Q>();
-        let args_id = self.global.storage.store(args);
-        let memo_id = self.global.memos.memo_id(query_id, args_id);
+        let _query_guard = &self
+            .global
+            .event_handler
+            .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
+        let query_id = self
+            .global
+            .query_ops
+            .query_id::<Q>(&self.global.event_handler);
+        let args_id = self.global.storage.store(&self.global.event_handler, args);
+        let memo_id = self
+            .global
+            .memos
+            .memo_id(&self.global.event_handler, query_id, args_id);
         self.verify_memo(self.global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
@@ -199,10 +217,17 @@ where
         let args = self.global.storage.get(memo_id.args());
         let mut query_update = self.install_query(current_rev, memo_id);
         let out = {
-            let _eval_guard = self.global.event_handler.scoped_event(ScopedEvent::Eval);
+            let _eval_guard = &self
+                .global
+                .event_handler
+                .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             eval(self, args)
         };
-        let out = (store_output)(&self.global.storage, out.as_ref());
+        let out = (store_output)(
+            &self.global.storage,
+            &self.global.event_handler,
+            out.as_ref(),
+        );
         if let Some(prev) = self.global.memos.memo(memo_id, |memo| memo.value_id)
             && out == prev
         {

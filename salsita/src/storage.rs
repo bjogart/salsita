@@ -1,4 +1,7 @@
 use crate::INCONSISTENT_STATE;
+use crate::event;
+use crate::event::Event;
+use crate::event::EventKind;
 use crate::panic_expected_different_type;
 use alloc::sync::Arc;
 use core::any::Any;
@@ -17,9 +20,10 @@ pub trait Storage: Default + 'static {
     type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
     type Handle: Debug + Handle;
 
-    fn store<T>(&self, value: &T) -> Self::Id
+    fn store<T, H>(&self, handler: &H, value: &T) -> Self::Id
     where
-        T: Clone + Eq + Hash + Send + Sync + 'static;
+        T: Clone + Eq + Hash + Send + Sync + 'static,
+        H: event::Handler;
 
     fn get(&self, id: Self::Id) -> Self::Handle;
 }
@@ -56,9 +60,10 @@ impl Storage for DefaultStorage {
 
     type Handle = Arc<dyn Any + Send + Sync>;
 
-    fn store<T>(&self, value: &T) -> Self::Id
+    fn store<T, H>(&self, handler: &H, value: &T) -> Self::Id
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
+        H: event::Handler,
     {
         let mut inner = self.0.write().expect(INCONSISTENT_STATE);
         let DefaultStorageInner {
@@ -67,8 +72,10 @@ impl Storage for DefaultStorage {
             values,
         } = &mut *inner;
         let bucket = Self::find_bucket(fingerprint_hasher, index, value);
-        Self::find_bucket_entry::<T>(bucket, values, value)
-            .unwrap_or_else(|| Self::insert_value(bucket, values, value))
+        Self::find_bucket_entry::<T>(bucket, values, value).unwrap_or_else(|| {
+            handler.event(Event::new(EventKind::StoreValue));
+            Self::insert_value(bucket, values, value)
+        })
     }
 
     fn get(&self, id: Self::Id) -> Self::Handle {
