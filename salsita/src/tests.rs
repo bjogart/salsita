@@ -8,17 +8,33 @@ use crate::query::Query;
 use crate::storage::DefaultStorage;
 use crate::storage::Storage;
 use core::fmt::Debug;
+use core::ops::Sub;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::thread;
 
+#[derive(PartialEq, Eq, Debug)]
+struct Counts {
+    query_count: usize,
+    eval_count: usize,
+    registered_query_ops: usize,
+    stored_values: usize,
+    memo_count: usize,
+}
+
 #[test]
 fn db_starts_empty() {
     assert_eq!(
-        counts_snapshot(&Db::<DefaultStorage, PerfHandler>::default().snapshot()),
-        (0, 0,)
+        Counts::new(&Db::<DefaultStorage, PerfHandler>::default().snapshot()),
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: 0,
+            stored_values: 0,
+            memo_count: 0
+        }
     );
 }
 
@@ -34,16 +50,62 @@ fn only_dependent_queries_recompute_on_input_change() {
     let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    let discount_price = db.new_input::<BurritoPrice>(&4);
+    let discount_price = assert_new_input::<BurritoPrice>(
+        &mut db,
+        4,
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: 0,
+            stored_values: 2,
+            memo_count: 1,
+        },
+    );
     assert_queries(
         &db,
         discount_price,
         count,
         burrito_salsa,
-        (6, 2, 1),
-        (18, 3, 1),
-        (23, 2, 1),
-        (120, 1, 0),
+        (
+            6,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 1,
+                memo_count: 1,
+            },
+        ),
+        (
+            18,
+            Counts {
+                query_count: 3,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 2,
+                memo_count: 1,
+            },
+        ),
+        (
+            23,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 1,
+                memo_count: 1,
+            },
+        ),
+        (
+            120,
+            Counts {
+                query_count: 1,
+                eval_count: 0,
+                registered_query_ops: 0,
+                stored_values: 0,
+                memo_count: 0,
+            },
+        ),
     );
 }
 
@@ -59,10 +121,46 @@ fn unchanged_outputs_stop_propagation() {
         price,
         count,
         burrito_salsa,
-        (6, 2, 1),
-        (30, 3, 1),
-        (35, 1, 0),
-        (200, 3, 1),
+        (
+            6,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 1,
+                memo_count: 0,
+            },
+        ),
+        (
+            30,
+            Counts {
+                query_count: 3,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 0,
+                memo_count: 0,
+            },
+        ),
+        (
+            35,
+            Counts {
+                query_count: 1,
+                eval_count: 0,
+                registered_query_ops: 0,
+                stored_values: 0,
+                memo_count: 0,
+            },
+        ),
+        (
+            200,
+            Counts {
+                query_count: 3,
+                eval_count: 1,
+                registered_query_ops: 0,
+                stored_values: 1,
+                memo_count: 0,
+            },
+        ),
     );
 }
 
@@ -71,14 +169,36 @@ fn propagation_updates_transitive_dependents() {
     let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
     init_queries(&db, price, count, burrito_salsa);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), &Some(35), 1, 0);
+    assert_query_delta::<PriceWithVat>(
+        &db,
+        &(price, count),
+        &35,
+        Counts {
+            query_count: 1,
+            eval_count: 0,
+            registered_query_ops: 0,
+            stored_values: 0,
+            memo_count: 0,
+        },
+    );
     db.set_input(price, &4);
-    assert_query_delta::<PriceWithVat>(&db, &(price, count), &Some(23), 5, 3);
+    assert_query_delta::<PriceWithVat>(
+        &db,
+        &(price, count),
+        &23,
+        Counts {
+            query_count: 5,
+            eval_count: 3,
+            registered_query_ops: 0,
+            stored_values: 3,
+            memo_count: 0,
+        },
+    );
 }
 
 #[test]
 fn modifications_are_blocked_until_snapshots_drop() {
-    let mut db: Db<DefaultStorage, ()> = Db::default();
+    let mut db: Db = Db::default();
     let (sender, receiver) = mpsc::channel::<Snapshot>();
     let price = db.new_input::<BurritoPrice>(&8);
     // Sanity check: on the main thread we observe the value we just created.
@@ -108,7 +228,7 @@ fn modifications_are_blocked_until_snapshots_drop() {
 
 #[test]
 fn modifications_trigger_query_cancellation() {
-    let mut db: Db<DefaultStorage, ()> = Db::default();
+    let mut db: Db = Db::default();
     let worker_ready = Arc::new((Mutex::new(false), Condvar::new()));
     let price = db.new_input::<BurritoPrice>(&8);
     // Spawn a worker thread that holds a live snapshot. While this snapshot
@@ -120,10 +240,7 @@ fn modifications_trigger_query_cancellation() {
         move || {
             // Sanity check: before any cancellation, the query evaluates as
             // expected.
-            assert_eq!(
-                *snapshot.query::<BurritoPriceWithShipping>(&price),
-                Some(10)
-            );
+            assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), (10));
             // Notify the main thread that the worker is ready.
             let (mutex, cvar) = &*worker_ready;
             *mutex.lock().unwrap() = true;
@@ -133,12 +250,9 @@ fn modifications_trigger_query_cancellation() {
             while !snapshot.should_cancel() {
                 thread::yield_now();
             }
-            // Calling the same query will immediately return the memoized
-            // value.
-            assert_eq!(
-                *snapshot.query::<BurritoPriceWithShipping>(&price),
-                Some(10)
-            );
+            // Calling a query while the database canceling automatically
+            // returns a memoized value and will not evaluate.
+            assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), (10));
         }
     });
     // Wait until the worker is ready.
@@ -154,10 +268,68 @@ fn modifications_trigger_query_cancellation() {
     // query will return an updated value.
     assert_eq!(
         *db.snapshot().query::<BurritoPriceWithShipping>(&price),
-        Some(6)
+        (6)
     );
     // Join and unwrap the worker thread to propagate failed assertions.
     handle.join().unwrap();
+}
+
+fn init_inputs(
+    db: &mut Db<DefaultStorage, PerfHandler>,
+) -> (
+    InputId<BurritoPrice>,
+    InputId<BurritoCount>,
+    InputId<SalsaPerBurrito>,
+) {
+    let price = assert_new_input(
+        db,
+        8,
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: 1,
+            stored_values: 2,
+            memo_count: 1,
+        },
+    );
+    let count = assert_new_input::<BurritoCount>(
+        db,
+        3,
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: 1,
+            stored_values: 2,
+            memo_count: 1,
+        },
+    );
+    let burrito_salsa = assert_new_input::<SalsaPerBurrito>(
+        db,
+        40,
+        Counts {
+            query_count: 0,
+            eval_count: 0,
+            registered_query_ops: 1,
+            stored_values: 2,
+            memo_count: 1,
+        },
+    );
+    (price, count, burrito_salsa)
+}
+
+fn assert_new_input<I>(
+    db: &mut Db<DefaultStorage, PerfHandler>,
+    value: I::Value,
+    counts: Counts,
+) -> InputId<I>
+where
+    I: Input,
+{
+    let before = Counts::new(&db.snapshot());
+    let input_id = db.new_input::<I>(&value);
+    let after = Counts::new(&db.snapshot());
+    assert_eq!(after - before, counts);
+    input_id
 }
 
 fn init_queries(
@@ -171,24 +343,47 @@ fn init_queries(
         price,
         count,
         burrito_salsa,
-        (10, 2, 1),
-        (30, 3, 1),
-        (35, 2, 1),
-        (120, 3, 1),
+        (
+            10,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 1,
+                stored_values: 1,
+                memo_count: 1,
+            },
+        ),
+        (
+            30,
+            Counts {
+                query_count: 3,
+                eval_count: 1,
+                registered_query_ops: 1,
+                stored_values: 2,
+                memo_count: 1,
+            },
+        ),
+        (
+            35,
+            Counts {
+                query_count: 2,
+                eval_count: 1,
+                registered_query_ops: 1,
+                stored_values: 1,
+                memo_count: 1,
+            },
+        ),
+        (
+            120,
+            Counts {
+                query_count: 3,
+                eval_count: 1,
+                registered_query_ops: 1,
+                stored_values: 2,
+                memo_count: 1,
+            },
+        ),
     );
-}
-
-fn init_inputs(
-    db: &mut Db<DefaultStorage, PerfHandler>,
-) -> (
-    InputId<BurritoPrice>,
-    InputId<BurritoCount>,
-    InputId<SalsaPerBurrito>,
-) {
-    let price = db.new_input::<BurritoPrice>(&8);
-    let count = db.new_input::<BurritoCount>(&3);
-    let burrito_salsa = db.new_input::<SalsaPerBurrito>(&40);
-    (price, count, burrito_salsa)
 }
 
 fn assert_queries(
@@ -196,38 +391,24 @@ fn assert_queries(
     price: InputId<BurritoPrice>,
     count: InputId<BurritoCount>,
     burrito_salsa: InputId<SalsaPerBurrito>,
-    price_w_shipping: (usize, usize, usize),
-    total_price: (usize, usize, usize),
-    price_with_vat: (usize, usize, usize),
-    salsa_in_order: (usize, usize, usize),
+    price_w_shipping: (usize, Counts),
+    total_price: (usize, Counts),
+    price_with_vat: (usize, Counts),
+    salsa_in_order: (usize, Counts),
 ) {
     assert_query_delta::<BurritoPriceWithShipping>(
         db,
         &price,
-        &Some(price_w_shipping.0),
+        &(price_w_shipping.0),
         price_w_shipping.1,
-        price_w_shipping.2,
     );
-    assert_query_delta::<TotalPrice>(
-        db,
-        &(price, count),
-        &Some(total_price.0),
-        total_price.1,
-        total_price.2,
-    );
-    assert_query_delta::<PriceWithVat>(
-        db,
-        &(price, count),
-        &Some(price_with_vat.0),
-        price_with_vat.1,
-        price_with_vat.2,
-    );
+    assert_query_delta::<TotalPrice>(db, &(price, count), &total_price.0, total_price.1);
+    assert_query_delta::<PriceWithVat>(db, &(price, count), &(price_with_vat.0), price_with_vat.1);
     assert_query_delta::<SalsaInOrder>(
         db,
         &(burrito_salsa, count),
-        &Some(salsa_in_order.0),
+        &(salsa_in_order.0),
         salsa_in_order.1,
-        salsa_in_order.2,
     );
 }
 
@@ -235,23 +416,43 @@ fn assert_query_delta<Q>(
     db: &Db<DefaultStorage, PerfHandler>,
     args: &Q::Args,
     exp_out: &Q::Out,
-    dq: usize,
-    de: usize,
+    d_counts: Counts,
 ) where
     Q: Query,
     Q::Out: Eq + Debug,
 {
     let snapshot = db.snapshot();
-    let (q_before, e_before) = counts_snapshot(&snapshot);
+    let before = Counts::new(&snapshot);
     let out = snapshot.query::<Q>(args);
     assert_eq!(out.as_ref(), exp_out);
-    let (q_after, e_after) = counts_snapshot(&snapshot);
-    assert_eq!((q_after - q_before, e_after - e_before), (dq, de));
+    let after = Counts::new(&snapshot);
+    assert_eq!(after - before, d_counts);
 }
 
-fn counts_snapshot(snapshot: &Snapshot<DefaultStorage, PerfHandler>) -> (usize, usize) {
-    let m = snapshot.event_handler();
-    (m.query_count(), m.eval_count())
+impl Counts {
+    fn new(snapshot: &Snapshot<DefaultStorage, PerfHandler>) -> Self {
+        Self {
+            query_count: snapshot.event_handler().query_count(),
+            eval_count: snapshot.event_handler().eval_count(),
+            registered_query_ops: snapshot.event_handler().registered_query_ops(),
+            stored_values: snapshot.event_handler().stored_values(),
+            memo_count: snapshot.event_handler().memo_count(),
+        }
+    }
+}
+
+impl Sub for Counts {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            query_count: self.query_count - rhs.query_count,
+            eval_count: self.eval_count - rhs.eval_count,
+            registered_query_ops: self.registered_query_ops - rhs.registered_query_ops,
+            stored_values: self.stored_values - rhs.stored_values,
+            memo_count: self.memo_count - rhs.memo_count,
+        }
+    }
 }
 
 struct BurritoPrice;
@@ -262,14 +463,14 @@ impl Input for BurritoPrice {
 struct BurritoPriceWithShipping;
 impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
         S: Storage,
         H: event::Handler,
     {
-        Some(*snapshot.query::<BurritoPrice>(args) + 2)
+        *snapshot.query::<BurritoPrice>(args) + 2
     }
 }
 
@@ -281,7 +482,7 @@ impl Input for BurritoCount {
 struct TotalPrice;
 impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
@@ -289,24 +490,21 @@ impl Query for TotalPrice {
         H: event::Handler,
     {
         let (price, count) = args;
-        Some(
-            (*snapshot.query::<BurritoPriceWithShipping>(price))?
-                * *snapshot.query::<BurritoCount>(count),
-        )
+        *snapshot.query::<BurritoPriceWithShipping>(price) * *snapshot.query::<BurritoCount>(count)
     }
 }
 
 struct PriceWithVat;
 impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
         S: Storage,
         H: event::Handler,
     {
-        Some((*snapshot.query::<TotalPrice>(args))? + 5)
+        (*snapshot.query::<TotalPrice>(args)) + 5
     }
 }
 
@@ -318,7 +516,7 @@ impl Input for SalsaPerBurrito {
 struct SalsaInOrder;
 impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
@@ -326,9 +524,6 @@ impl Query for SalsaInOrder {
         H: event::Handler,
     {
         let (burrito_salsa, count) = args;
-        Some(
-            *snapshot.query::<BurritoCount>(count)
-                * *snapshot.query::<SalsaPerBurrito>(burrito_salsa),
-        )
+        *snapshot.query::<BurritoCount>(count) * *snapshot.query::<SalsaPerBurrito>(burrito_salsa)
     }
 }
