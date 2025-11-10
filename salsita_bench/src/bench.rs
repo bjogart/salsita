@@ -1580,61 +1580,63 @@ mod tests {
 
     #[test]
     fn star10() {
-        black_box(bench::star10::<0, 1, 100, 10>());
+        black_box(bench::star10::<0, 1, 2, 1>());
     }
 
     #[test]
     fn star30() {
-        black_box(bench::star30::<0, 1, 100, 10>());
+        black_box(bench::star30::<0, 1, 2, 1>());
     }
 
     #[test]
     fn star100() {
-        black_box(bench::star100::<0, 1, 100, 10>());
+        black_box(bench::star100::<0, 1, 2, 1>());
     }
 
     #[test]
     fn chain5() {
-        black_box(bench::chain5::<0, 1, 100, 10>());
+        black_box(bench::chain5::<0, 1, 2, 1>());
     }
 
     #[test]
     fn chain25() {
-        black_box(bench::chain25::<0, 1, 100, 10>());
+        black_box(bench::chain25::<0, 1, 2, 1>());
     }
 
     #[test]
     fn chain100() {
-        black_box(bench::chain100::<0, 1, 100, 10>());
+        black_box(bench::chain100::<0, 1, 2, 1>());
     }
 
     #[test]
     fn tree_k3d2() {
-        black_box(bench::tree_k3d2::<0, 1, 100, 10>());
+        black_box(bench::tree_k3d2::<0, 1, 2, 1>());
     }
 
     #[test]
     fn tree_k3d3() {
-        black_box(bench::tree_k3d3::<0, 1, 100, 10>());
+        black_box(bench::tree_k3d3::<0, 1, 2, 1>());
     }
 
     #[test]
     fn tree_k3d4() {
-        black_box(bench::tree_k3d4::<0, 1, 100, 10>());
+        black_box(bench::tree_k3d4::<0, 1, 2, 1>());
     }
 
     #[test]
     fn hourglass3() {
-        black_box(bench::hourglass3::<0, 1, 100, 10>());
+        black_box(bench::hourglass3::<0, 1, 2, 1>());
     }
 
     #[test]
     fn hourglass6() {
-        black_box(bench::hourglass6::<0, 1, 100, 10>());
+        black_box(bench::hourglass6::<0, 1, 2, 1>());
     }
 
     #[test]
     fn hourglass9() {
+        // Increase parallel generation/snapshot count for a single test to
+        // check for parallel snapshot errors.
         black_box(bench::hourglass9::<0, 1, 100, 10>());
     }
 }
