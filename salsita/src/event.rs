@@ -10,7 +10,7 @@ const VALUE_ALREADY_TAKEN: &str = "bug: guard payload already taken";
 
 pub trait Handler
 where
-    Self: Default + Sized,
+    Self: Sized,
 {
     type Payload;
 

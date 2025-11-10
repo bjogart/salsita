@@ -101,7 +101,6 @@ where
 impl<S, H> Db<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     #[must_use]
     pub fn event_handler(&self) -> &H {
@@ -110,6 +109,7 @@ where
 
     pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
     where
+        H: event::Handler,
         I: Input,
     {
         let rev = self.global.rev.get();
@@ -135,6 +135,7 @@ where
 
     pub fn set_input<I>(&mut self, input_id: InputId<I>, value: &I::Value)
     where
+        H: event::Handler,
         I: Input,
     {
         self.global.should_cancel.store(true, Ordering::Release);
@@ -161,7 +162,10 @@ where
         }
     }
 
-    pub fn gc(&mut self) {
+    pub fn gc(&mut self)
+    where
+        H: event::Handler,
+    {
         self.barrier.wait_for_exclusive_access(&mut self.global);
         let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
 
@@ -225,7 +229,7 @@ where
 impl<S, H> Default for Db<S, H>
 where
     S: Storage,
-    H: event::Handler,
+    H: Default,
 {
     fn default() -> Self {
         Self {
@@ -238,10 +242,10 @@ where
 impl<S, H> Snapshot<S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
+        H: event::Handler,
         Q: Query,
     {
         let _query_guard = &self
@@ -261,7 +265,10 @@ where
         self.memoized_value::<Q>(memo_id)
     }
 
-    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
+    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>)
+    where
+        H: event::Handler,
+    {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self
@@ -287,7 +294,10 @@ where
         self.eval_memo(current_rev, memo_id);
     }
 
-    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) {
+    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>)
+    where
+        H: event::Handler,
+    {
         let ops = self
             .global
             .query_ops
@@ -320,14 +330,20 @@ where
         current_rev: Revision,
         memo_last_verified: Revision,
         dep: MemoId<S>,
-    ) -> bool {
+    ) -> bool
+    where
+        H: event::Handler,
+    {
         self.verify_memo(current_rev, dep);
         self.global
             .memos
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
-    fn install_query(&self, current_rev: Revision, memo_id: MemoId<S>) -> QueryUpdate<'_, S, H> {
+    fn install_query(&self, current_rev: Revision, memo_id: MemoId<S>) -> QueryUpdate<'_, S, H>
+    where
+        H: event::Handler,
+    {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
@@ -369,7 +385,7 @@ where
 impl<S, H> Default for GlobalState<S, H>
 where
     S: Storage,
-    H: event::Handler,
+    H: Default,
 {
     fn default() -> Self {
         Self {

@@ -21,10 +21,10 @@ pub trait Storage: Default + 'static {
     type Handle: Debug + Handle;
     type Transfer: Transfer<Storage = Self>;
 
-    fn store<T, H>(&self, handler: &H, value: &T) -> Self::Id
+    fn store<H, T>(&self, handler: &H, value: &T) -> Self::Id
     where
-        T: Clone + Eq + Hash + Send + Sync + 'static,
-        H: event::Handler;
+        H: event::Handler,
+        T: Clone + Eq + Hash + Send + Sync + 'static;
 
     fn get(&self, id: Self::Id) -> Self::Handle;
 
@@ -96,10 +96,10 @@ impl Storage for DefaultStorage {
 
     type Transfer = DefaultTransfer;
 
-    fn store<T, H>(&self, handler: &H, value: &T) -> Self::Id
+    fn store<H, T>(&self, handler: &H, value: &T) -> Self::Id
     where
-        T: Clone + Eq + Hash + Send + Sync + 'static,
         H: event::Handler,
+        T: Clone + Eq + Hash + Send + Sync + 'static,
     {
         let mut inner = self.0.write().expect(INCONSISTENT_STATE);
         inner.store(handler, value)
@@ -118,10 +118,10 @@ impl Storage for DefaultStorage {
 }
 
 impl DefaultStorageInner {
-    fn store<T, H>(&mut self, handler: &H, value: &T) -> DefaultStorageId
+    fn store<H, T>(&mut self, handler: &H, value: &T) -> DefaultStorageId
     where
-        T: Clone + Eq + Hash + Send + Sync + 'static,
         H: event::Handler,
+        T: Clone + Eq + Hash + Send + Sync + 'static,
     {
         let Self {
             fingerprint_hasher,

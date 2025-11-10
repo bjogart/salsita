@@ -2,7 +2,6 @@ use crate::ActiveQuery;
 use crate::ActiveQueryStack;
 use crate::Revision;
 use crate::Snapshot;
-use crate::event;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::storage::Storage;
@@ -10,7 +9,6 @@ use crate::storage::Storage;
 pub(crate) struct QueryUpdate<'snap, S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     snapshot: &'snap Snapshot<S, H>,
     pub(crate) commit: PendingCommit<S>,
@@ -44,7 +42,6 @@ where
 impl<'snap, S, H> QueryUpdate<'snap, S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     pub(crate) const fn new(snapshot: &'snap Snapshot<S, H>, commit: PendingCommit<S>) -> Self {
         Self { snapshot, commit }
@@ -54,7 +51,6 @@ where
 impl<S, H> Drop for QueryUpdate<'_, S, H>
 where
     S: Storage,
-    H: event::Handler,
 {
     fn drop(&mut self) {
         let Self { snapshot, commit } = self;
