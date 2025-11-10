@@ -172,7 +172,7 @@ fn propagation_updates_transitive_dependents() {
     assert_query_delta::<PriceWithVat>(
         &db,
         &(price, count),
-        &Some(35),
+        &35,
         Counts {
             query_count: 1,
             eval_count: 0,
@@ -185,7 +185,7 @@ fn propagation_updates_transitive_dependents() {
     assert_query_delta::<PriceWithVat>(
         &db,
         &(price, count),
-        &Some(23),
+        &23,
         Counts {
             query_count: 5,
             eval_count: 3,
@@ -240,10 +240,7 @@ fn modifications_trigger_query_cancellation() {
         move || {
             // Sanity check: before any cancellation, the query evaluates as
             // expected.
-            assert_eq!(
-                *snapshot.query::<BurritoPriceWithShipping>(&price),
-                Some(10)
-            );
+            assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), (10));
             // Notify the main thread that the worker is ready.
             let (mutex, cvar) = &*worker_ready;
             *mutex.lock().unwrap() = true;
@@ -255,10 +252,7 @@ fn modifications_trigger_query_cancellation() {
             }
             // Calling the same query will immediately return the memoized
             // value.
-            assert_eq!(
-                *snapshot.query::<BurritoPriceWithShipping>(&price),
-                Some(10)
-            );
+            assert_eq!(*snapshot.query::<BurritoPriceWithShipping>(&price), (10));
         }
     });
     // Wait until the worker is ready.
@@ -274,7 +268,7 @@ fn modifications_trigger_query_cancellation() {
     // query will return an updated value.
     assert_eq!(
         *db.snapshot().query::<BurritoPriceWithShipping>(&price),
-        Some(6)
+        (6)
     );
     // Join and unwrap the worker thread to propagate failed assertions.
     handle.join().unwrap();
@@ -405,20 +399,15 @@ fn assert_queries(
     assert_query_delta::<BurritoPriceWithShipping>(
         db,
         &price,
-        &Some(price_w_shipping.0),
+        &(price_w_shipping.0),
         price_w_shipping.1,
     );
-    assert_query_delta::<TotalPrice>(db, &(price, count), &Some(total_price.0), total_price.1);
-    assert_query_delta::<PriceWithVat>(
-        db,
-        &(price, count),
-        &Some(price_with_vat.0),
-        price_with_vat.1,
-    );
+    assert_query_delta::<TotalPrice>(db, &(price, count), &total_price.0, total_price.1);
+    assert_query_delta::<PriceWithVat>(db, &(price, count), &(price_with_vat.0), price_with_vat.1);
     assert_query_delta::<SalsaInOrder>(
         db,
         &(burrito_salsa, count),
-        &Some(salsa_in_order.0),
+        &(salsa_in_order.0),
         salsa_in_order.1,
     );
 }
@@ -474,14 +463,14 @@ impl Input for BurritoPrice {
 struct BurritoPriceWithShipping;
 impl Query for BurritoPriceWithShipping {
     type Args = InputId<BurritoPrice>;
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
         S: Storage,
         H: event::Handler,
     {
-        Some(*snapshot.query::<BurritoPrice>(args) + 2)
+        *snapshot.query::<BurritoPrice>(args) + 2
     }
 }
 
@@ -493,7 +482,7 @@ impl Input for BurritoCount {
 struct TotalPrice;
 impl Query for TotalPrice {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
@@ -501,24 +490,21 @@ impl Query for TotalPrice {
         H: event::Handler,
     {
         let (price, count) = args;
-        Some(
-            (*snapshot.query::<BurritoPriceWithShipping>(price))?
-                * *snapshot.query::<BurritoCount>(count),
-        )
+        *snapshot.query::<BurritoPriceWithShipping>(price) * *snapshot.query::<BurritoCount>(count)
     }
 }
 
 struct PriceWithVat;
 impl Query for PriceWithVat {
     type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
         S: Storage,
         H: event::Handler,
     {
-        Some((*snapshot.query::<TotalPrice>(args))? + 5)
+        (*snapshot.query::<TotalPrice>(args)) + 5
     }
 }
 
@@ -530,7 +516,7 @@ impl Input for SalsaPerBurrito {
 struct SalsaInOrder;
 impl Query for SalsaInOrder {
     type Args = (InputId<SalsaPerBurrito>, InputId<BurritoCount>);
-    type Out = Option<usize>;
+    type Out = usize;
 
     fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
     where
@@ -538,9 +524,6 @@ impl Query for SalsaInOrder {
         H: event::Handler,
     {
         let (burrito_salsa, count) = args;
-        Some(
-            *snapshot.query::<BurritoCount>(count)
-                * *snapshot.query::<SalsaPerBurrito>(burrito_salsa),
-        )
+        *snapshot.query::<BurritoCount>(count) * *snapshot.query::<SalsaPerBurrito>(burrito_salsa)
     }
 }
