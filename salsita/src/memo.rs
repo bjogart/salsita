@@ -3,8 +3,8 @@ use crate::Revision;
 use crate::event;
 use crate::event::Event;
 use crate::event::EventKind;
+use crate::query_ops::QueryId;
 use crate::storage::Storage;
-use core::any::TypeId;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Formatter;
@@ -29,7 +29,7 @@ pub(crate) struct MemoId<S>
 where
     S: Storage,
 {
-    pub(crate) query_id: TypeId,
+    pub(crate) query_id: QueryId,
     pub(crate) args_id: S::Id,
 }
 
@@ -52,7 +52,7 @@ where
         &self,
         handler: &H,
         rev: Revision,
-        query_id: TypeId,
+        query_id: QueryId,
         args_id: S::Id,
         value_id: S::Id,
     ) -> MemoId<S>
@@ -74,7 +74,7 @@ where
         memo_id
     }
 
-    pub(crate) fn memo_id<H>(&self, handler: &H, query_id: TypeId, args_id: S::Id) -> MemoId<S>
+    pub(crate) fn memo_id<H>(&self, handler: &H, query_id: QueryId, args_id: S::Id) -> MemoId<S>
     where
         H: event::Handler,
     {
