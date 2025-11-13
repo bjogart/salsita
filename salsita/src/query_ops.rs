@@ -21,7 +21,7 @@ where
     S: Storage;
 
 #[derive(Debug)]
-pub(crate) struct QueryOpsRegistryInner<S, H>(HashMap<TypeId, QueryOps<S, H>>)
+pub(crate) struct QueryOpsRegistryInner<S, H>(HashMap<QueryId, QueryOps<S, H>>)
 where
     S: Storage;
 
@@ -47,11 +47,14 @@ type TransferInputMemoValues<S> = fn(
     value_id: <S as Storage>::Id,
 ) -> (<S as Storage>::Id, <S as Storage>::Id);
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct QueryId(TypeId);
+
 impl<S, H> QueryOpsRegistry<S, H>
 where
     S: Storage,
 {
-    pub(crate) fn query_id<Q>(&self, handler: &H) -> TypeId
+    pub(crate) fn query_id<Q>(&self, handler: &H) -> QueryId
     where
         H: event::Handler,
         Q: Query,
@@ -62,7 +65,7 @@ where
             .query_id::<Q>(handler)
     }
 
-    pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>>
+    pub(crate) fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>>
     where
         H: event::Handler,
     {
@@ -87,12 +90,12 @@ impl<S, H> QueryOpsRegistryInner<S, H>
 where
     S: Storage,
 {
-    fn query_id<Q>(&mut self, handler: &H) -> TypeId
+    fn query_id<Q>(&mut self, handler: &H) -> QueryId
     where
         H: event::Handler,
         Q: Query,
     {
-        let query_id = TypeId::of::<Q>();
+        let query_id = QueryId(TypeId::of::<Q>());
         self.0.entry(query_id).or_insert_with(|| {
             handler.event(Event::new(EventKind::RegisterQueryOps));
             QueryOps::new::<Q>()
@@ -100,11 +103,11 @@ where
         query_id
     }
 
-    pub(crate) fn get(&self, query_id: TypeId) -> Option<QueryOps<S, H>> {
+    pub(crate) fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>> {
         self.0.get(&query_id).copied()
     }
 
-    pub(crate) fn remove(&mut self, handler: &H, query_id: TypeId)
+    pub(crate) fn remove(&mut self, handler: &H, query_id: QueryId)
     where
         H: event::Handler,
     {
