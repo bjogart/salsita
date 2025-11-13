@@ -113,7 +113,8 @@ where
         }
     }
 
-    pub(crate) const fn into_registry(self) -> QueryOpsRegistry<S, H> {
+    pub(crate) fn into_registry(mut self) -> QueryOpsRegistry<S, H> {
+        self.0.shrink_to_fit();
         QueryOpsRegistry(RwLock::new(self))
     }
 }
