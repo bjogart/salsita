@@ -1,7 +1,7 @@
-use crate::INCONSISTENT_STATE;
 use alloc::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
+use std::sync::PoisonError;
 
 /// Synchronization primitive that blocks until associated `Arc<T>` is uniquely
 /// owned.
@@ -32,18 +32,26 @@ impl ExclusiveBarrier {
     /// the caller to prohibit cloning of `data` by holding `&mut data` while an
     /// exclusive reference is required.
     pub(crate) fn wait_for_exclusive_access<T>(&self, data: &mut Arc<T>) {
-        let mut guard = self.0.waiter.lock().expect(INCONSISTENT_STATE);
+        // `waiter` guards no data, so poison can be safely ignored.
+        let mut guard = self.0.waiter.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(_) = Arc::get_mut(data) {
                 break;
             }
-            guard = self.0.notifier.wait(guard).expect(INCONSISTENT_STATE);
+            // `waiter` guards no data, so poison can be safely ignored.
+            guard = self
+                .0
+                .notifier
+                .wait(guard)
+                .unwrap_or_else(PoisonError::into_inner);
         }
     }
 }
 
 impl Drop for ExclusiveBarrier {
     fn drop(&mut self) {
+        // `waiter` guards no data, so poison can be safely ignored.
+        let _guard = self.0.waiter.lock().unwrap_or_else(PoisonError::into_inner);
         self.0.notifier.notify_all();
     }
 }
