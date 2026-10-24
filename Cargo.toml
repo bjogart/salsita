@@ -109,6 +109,7 @@ semicolon_if_nothing_returned = "allow"
 semicolon_inside_block = "allow"
 shadow_reuse = "allow"
 single_call_fn = "allow"
+unneeded_field_pattern = "allow"
 
 [workspace.lints.rustdoc]
 missing_crate_level_docs = "warn"

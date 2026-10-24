@@ -299,6 +299,20 @@ fn garbage_collection_handles_derived_queries_without_deps() {
     assert_eq!(*db.snapshot().query::<SalsaCupGrams>(&3), 120);
 }
 
+#[test]
+fn inputs_can_be_set_after_garbage_collection() {
+    let mut db: Db = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    // Store a derived value between the two inputs, so that collecting it moves
+    // the second input to a different storage ID.
+    assert_eq!(*db.snapshot().query::<BurritoPriceWithShipping>(&price), 10);
+    let count = db.new_input::<BurritoCount>(&3);
+    db.gc();
+    db.set_input(count, &5);
+    assert_eq!(*db.snapshot().query::<BurritoCount>(&count), 5);
+    assert_eq!(*db.snapshot().query::<BurritoPrice>(&price), 8);
+}
+
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (

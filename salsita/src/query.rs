@@ -3,6 +3,7 @@ use crate::Snapshot;
 use crate::event;
 use crate::memo::MemoId;
 use crate::storage::Storage;
+use crate::storage::Transfer as _;
 use core::fmt;
 use core::fmt::Debug;
 use core::fmt::Formatter;
@@ -26,14 +27,29 @@ pub trait Input: Send + Sync + 'static {
 }
 
 #[derive(Debug)]
-pub(crate) struct InputRegistry<S>(RwLock<Vec<MemoId<S>>>)
+pub(crate) struct InputRegistry<S>(RwLock<Vec<InputEntry<S>>>)
 where
     S: Storage;
 
 #[derive(Debug)]
-pub(crate) struct InputRegistryTransfer<S>(Vec<MemoId<S>>)
+struct InputEntry<S>
+where
+    S: Storage,
+{
+    memo_id: MemoId<S>,
+    transfer: TransferInput<S>,
+}
+
+#[derive(Debug)]
+pub(crate) struct InputTransfer<'registry, S>(&'registry mut InputEntry<S>)
 where
     S: Storage;
+
+type TransferInput<S> = fn(
+    transfer: &mut <S as Storage>::Transfer,
+    curr_args_id: <S as Storage>::Id,
+    curr_value_id: <S as Storage>::Id,
+) -> (<S as Storage>::Id, <S as Storage>::Id);
 
 pub struct InputId<I>(usize, PhantomData<I>);
 
@@ -58,43 +74,74 @@ impl<S> InputRegistry<S>
 where
     S: Storage,
 {
-    pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I> {
+    pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I>
+    where
+        I: Input,
+    {
         let mut inputs = self.0.write().expect(INCONSISTENT_STATE);
         let input_id = InputId(inputs.len(), PhantomData);
         let memo_id = f(input_id);
-        inputs.push(memo_id);
-        input_id
+        inputs.push(InputEntry {
+            memo_id,
+            transfer: transfer_input::<S, I>,
+        });
+        return input_id;
+
+        fn transfer_input<S, I>(
+            transfer: &mut S::Transfer,
+            curr_args_id: S::Id,
+            curr_value_id: S::Id,
+        ) -> (S::Id, S::Id)
+        where
+            S: Storage,
+            I: Input,
+        {
+            let next_args_id = transfer.transfer::<InputId<I>>(curr_args_id);
+            let next_value_id = transfer.transfer::<<I as Query>::Out>(curr_value_id);
+            (next_args_id, next_value_id)
+        }
     }
 
     pub(crate) fn memo_id<I>(&self, input_id: InputId<I>) -> MemoId<S> {
         let InputId(idx, _) = input_id;
-        *self
-            .0
+        self.0
             .read()
             .expect(INCONSISTENT_STATE)
             .get(idx)
             .expect("bug: unknown input ID (was this ID created by another database?)")
+            .memo_id
     }
 
-    pub(crate) fn into_transfer(self) -> InputRegistryTransfer<S> {
-        InputRegistryTransfer(self.0.into_inner().expect(INCONSISTENT_STATE))
+    pub(crate) fn transfer(&mut self) -> impl ExactSizeIterator<Item = InputTransfer<'_, S>> {
+        self.0
+            .get_mut()
+            .expect(INCONSISTENT_STATE)
+            .iter_mut()
+            .map(InputTransfer)
     }
 }
 
-impl<S> InputRegistryTransfer<S>
+impl<S> InputTransfer<'_, S>
 where
     S: Storage,
 {
-    pub(crate) fn is_input(&self, memo_id: MemoId<S>) -> bool {
-        self.0.contains(&memo_id)
+    pub(crate) fn memo_id(&self) -> MemoId<S> {
+        self.0.memo_id
     }
 
-    pub(crate) fn into_registry(self) -> InputRegistry<S>
-    where
-        S: Storage,
-    {
-        let Self(registry) = self;
-        InputRegistry(RwLock::new(registry))
+    pub(crate) fn transfer(
+        self,
+        storage_transfer: &mut S::Transfer,
+        value_id: S::Id,
+    ) -> (MemoId<S>, S::Id) {
+        let Self(InputEntry {
+            memo_id,
+            transfer: transfer_input,
+        }) = self;
+        let (next_args_id, next_value_id) =
+            transfer_input(storage_transfer, memo_id.args_id, value_id);
+        memo_id.args_id = next_args_id;
+        (*memo_id, next_value_id)
     }
 }
 

@@ -33,19 +33,6 @@ pub trait Storage: Default + 'static {
 pub trait Transfer {
     type Storage: Storage;
 
-    /// Retrieve a value corresponding to a storage ID.
-    ///
-    /// `id` must be a value stored inside the storage that created this
-    /// [`Transfer`] struct. Passing in a storage ID from a different storage
-    /// constitutes a logic bug in Salsita and implementations should panic if
-    /// an invalid storage ID is encountered.
-    ///
-    /// [`transfer`][Transfer::transfer] may move the data associated with `id`
-    /// to a new storage. Calling `self.get_raw_input_id(id)` after
-    /// `self.transfer(id)` therefore also constitutes a logic error in Salsita
-    /// and implementations should panic to indicate its existence.
-    fn get(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Handle;
-
     fn transfer<T>(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Id
     where
         T: Clone + Eq + Hash + Send + Sync + 'static;
@@ -192,10 +179,6 @@ impl DefaultStorageInner {
 
 impl Transfer for DefaultTransfer {
     type Storage = DefaultStorage;
-
-    fn get(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Handle {
-        self.curr.get(id)
-    }
 
     fn transfer<T>(&mut self, id: <Self::Storage as Storage>::Id) -> <Self::Storage as Storage>::Id
     where
