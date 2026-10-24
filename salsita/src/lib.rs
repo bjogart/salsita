@@ -163,15 +163,13 @@ where
 
         let mut storage_transfer = mem::take(&mut global.storage).into_transfer();
         let mut query_ops_inner = mem::take(&mut global.query_ops).into_inner();
+        let inputs_inner = mem::take(&mut global.inputs).into_inner();
         let memos = mem::take(&mut global.memos)
             .into_iter()
             .filter_map(|(mut memo_id, mut memo)| {
-                // Memos with dependencies are not inputs by definition.
-                if !memo.deps.is_empty() {
+                if !inputs_inner.is_input(memo_id) {
                     return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
                 }
-                // Memos without dependencies and without a value are derived
-                // queries that have never been evaluated, not inputs.
                 let Some(value_id) = memo.value_id else {
                     return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
                 };
@@ -191,6 +189,7 @@ where
             .collect();
 
         let _dummy_query_ops = mem::replace(&mut global.query_ops, query_ops_inner.into_registry());
+        let _dummy_inputs = mem::replace(&mut global.inputs, inputs_inner.into_registry());
         let _dummy_storage = mem::replace(
             &mut global.storage,
             storage_transfer.into_storage(&global.handler),
