@@ -18,7 +18,6 @@ use crate::storage::Handle;
 use crate::storage::Storage;
 use crate::storage::Transfer as _;
 use crate::update::MemoUpdate;
-use crate::update::PendingChange;
 use crate::update::PendingCommit;
 use crate::update::QueryUpdate;
 use alloc::sync::Arc;
@@ -140,7 +139,7 @@ where
         let args_id = global.inputs.memo_id(input_id);
         let mut commit = PendingCommit::new(current_rev, args_id);
         let value_id = global.storage.store(&global.handler, value);
-        commit.change = Some(PendingChange::new(value_id));
+        commit.new_value_id = Some(value_id);
         let _update = MemoUpdate::new(&global.memos, commit);
     }
 
@@ -308,7 +307,7 @@ where
         {
             return;
         }
-        query_update.commit.change = Some(PendingChange::new(out));
+        query_update.commit.new_value_id = Some(out);
     }
 
     fn dep_postdates_rev(
