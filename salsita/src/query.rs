@@ -105,7 +105,10 @@ impl<I> PartialEq for InputId<I> {
 impl<I> Eq for InputId<I> {}
 
 impl<I> Hash for InputId<I> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         let Self(id, marker) = self;
         id.hash(state);
         marker.hash(state);
