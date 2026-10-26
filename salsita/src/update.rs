@@ -28,15 +28,8 @@ where
 {
     current_rev: Revision,
     memo_id: MemoId<S>,
-    pub(crate) change: Option<PendingChange<S>>,
-}
-
-pub(crate) struct PendingChange<S>
-where
-    S: Storage,
-{
-    value_id: S::Id,
     deps: Option<Vec<MemoId<S>>>,
+    pub(crate) new_value_id: Option<S::Id>,
 }
 
 impl<'snap, S, H> QueryUpdate<'snap, S, H>
@@ -56,10 +49,8 @@ where
         let Self { snapshot, commit } = self;
         let mut active_queries = snapshot.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
-        if let Some(change) = commit.change.as_mut()
-            && let Some(ActiveQuery { deps }) = active_queries.pop()
-        {
-            change.deps = Some(deps);
+        if let Some(ActiveQuery { deps }) = active_queries.pop() {
+            commit.deps = Some(deps);
         }
         let _update = MemoUpdate::new(&snapshot.db.global.memos, commit.take());
     }
@@ -85,17 +76,18 @@ where
                 PendingCommit {
                     current_rev,
                     memo_id,
-                    change,
+                    deps,
+                    new_value_id,
                 },
         } = self;
         memos.memo_mut(*memo_id, |memo| {
             memo.last_verified = *current_rev;
-            if let Some(PendingChange { deps, value_id }) = change.take() {
+            if let Some(deps) = deps.take() {
+                memo.deps = deps;
+            }
+            if let Some(value_id) = new_value_id.take() {
                 memo.value_id = Some(value_id);
                 memo.last_changed = *current_rev;
-                if let Some(deps) = deps {
-                    memo.deps = deps;
-                }
             }
         });
     }
@@ -109,27 +101,17 @@ where
         Self {
             current_rev,
             memo_id,
-            change: None,
+            deps: None,
+            new_value_id: None,
         }
     }
 
     const fn take(&mut self) -> Self {
         Self {
-            change: self.change.take(),
             current_rev: self.current_rev,
             memo_id: self.memo_id,
-        }
-    }
-}
-
-impl<S> PendingChange<S>
-where
-    S: Storage,
-{
-    pub(crate) const fn new(value_id: S::Id) -> Self {
-        Self {
-            value_id,
-            deps: None,
+            deps: self.deps.take(),
+            new_value_id: self.new_value_id.take(),
         }
     }
 }

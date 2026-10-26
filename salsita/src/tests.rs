@@ -254,6 +254,43 @@ fn garbage_collection_reclaims_unused_ops_and_storage_and_memos() {
     );
 }
 
+#[test]
+fn unchanged_reevaluation_records_new_deps() {
+    let mut db: Db = Db::default();
+    let pickup = db.new_input::<IsPickup>(&true);
+    let fee = db.new_input::<DeliveryFee>(&5);
+    // Pickup orders don't read the delivery fee.
+    assert_eq!(*db.snapshot().query::<DeliveryCost>(&(pickup, fee)), 0);
+    // Switching to delivery makes the query read the fee, but the output is
+    // still 0, so the result is unchanged.
+    db.set_input(pickup, &false);
+    db.set_input(fee, &0);
+    assert_eq!(*db.snapshot().query::<DeliveryCost>(&(pickup, fee)), 0);
+    // The fee is now a dependency, so adjustments should be reflected in the
+    // result.
+    db.set_input(fee, &7);
+    assert_eq!(*db.snapshot().query::<DeliveryCost>(&(pickup, fee)), 7);
+}
+
+#[test]
+fn unchanged_nested_reevaluation_preserves_caller_deps() {
+    let mut db: Db = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let pickup = db.new_input::<IsPickup>(&true);
+    let fee = db.new_input::<DeliveryFee>(&5);
+    let args = (price, pickup, fee);
+    assert_eq!(*db.snapshot().query::<DeliveredBurritoPrice>(&args), 8);
+    // `DeliveredBurritoPrice` re-evaluates because the price changed, and
+    // `DeliveryCost` re-evaluates to an unchanged value.
+    db.set_input(price, &9);
+    db.set_input(pickup, &false);
+    db.set_input(fee, &0);
+    assert_eq!(*db.snapshot().query::<DeliveredBurritoPrice>(&args), 9);
+    // Price must still be tracked as a dependency of the caller.
+    db.set_input(price, &10);
+    assert_eq!(*db.snapshot().query::<DeliveredBurritoPrice>(&args), 10);
+}
+
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
@@ -570,5 +607,53 @@ impl Query for SalsaInOrder {
     {
         let (burrito_salsa, count) = args;
         *snapshot.query::<BurritoCount>(count) * *snapshot.query::<SalsaPerBurrito>(burrito_salsa)
+    }
+}
+
+struct IsPickup;
+impl Input for IsPickup {
+    type Value = bool;
+}
+
+struct DeliveryFee;
+impl Input for DeliveryFee {
+    type Value = usize;
+}
+
+struct DeliveryCost;
+impl Query for DeliveryCost {
+    type Args = (InputId<IsPickup>, InputId<DeliveryFee>);
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        let (pickup, fee) = args;
+        if *snapshot.query::<IsPickup>(pickup) {
+            0
+        } else {
+            *snapshot.query::<DeliveryFee>(fee)
+        }
+    }
+}
+
+struct DeliveredBurritoPrice;
+impl Query for DeliveredBurritoPrice {
+    type Args = (
+        InputId<BurritoPrice>,
+        InputId<IsPickup>,
+        InputId<DeliveryFee>,
+    );
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        let (price, pickup, fee) = args;
+        *snapshot.query::<BurritoPrice>(price) + *snapshot.query::<DeliveryCost>(&(*pickup, *fee))
     }
 }
