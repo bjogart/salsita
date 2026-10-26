@@ -205,7 +205,10 @@ impl<S> Hash for MemoId<S>
 where
     S: Storage,
 {
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         self.query_id.hash(state);
         self.args_id.hash(state);
     }
