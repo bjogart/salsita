@@ -41,12 +41,12 @@ where
 }
 
 #[derive(Debug)]
-pub(crate) struct InputTransfer<'registry, S>(&'registry mut InputEntry<S>)
+pub(crate) struct InputTransfer<'entry, S>(&'entry InputEntry<S>)
 where
     S: Storage;
 
 type TransferInput<S> = fn(
-    transfer: &mut <S as Storage>::Transfer,
+    transfer: &mut <S as Storage>::Transfer<'_>,
     curr_args_id: <S as Storage>::Id,
     curr_value_id: <S as Storage>::Id,
 ) -> (<S as Storage>::Id, <S as Storage>::Id);
@@ -83,15 +83,15 @@ where
         let memo_id = f(input_id);
         inputs.push(InputEntry {
             memo_id,
-            transfer: transfer_input::<S, I>,
+            transfer: transfer::<S, I>,
         });
         return input_id;
 
-        fn transfer_input<S, I>(
-            transfer: &mut S::Transfer,
-            curr_args_id: S::Id,
-            curr_value_id: S::Id,
-        ) -> (S::Id, S::Id)
+        fn transfer<S, I>(
+            transfer: &mut <S as Storage>::Transfer<'_>,
+            curr_args_id: <S as Storage>::Id,
+            curr_value_id: <S as Storage>::Id,
+        ) -> (<S as Storage>::Id, <S as Storage>::Id)
         where
             S: Storage,
             I: Input,
@@ -112,12 +112,25 @@ where
             .memo_id
     }
 
-    pub(crate) fn transfer(&mut self) -> impl ExactSizeIterator<Item = InputTransfer<'_, S>> {
-        self.0
-            .get_mut()
+    pub(crate) fn len(&self) -> usize {
+        self.0.read().expect(INCONSISTENT_STATE).len()
+    }
+
+    pub(crate) fn transfer(
+        &self,
+        mut transfer: impl FnMut(InputTransfer<'_, S>) -> MemoId<S>,
+    ) -> Self {
+        let next = self
+            .0
+            .read()
             .expect(INCONSISTENT_STATE)
-            .iter_mut()
-            .map(InputTransfer)
+            .iter()
+            .map(|entry| InputEntry {
+                memo_id: transfer(InputTransfer(entry)),
+                transfer: entry.transfer,
+            })
+            .collect();
+        Self(RwLock::new(next))
     }
 }
 
@@ -130,18 +143,20 @@ where
     }
 
     pub(crate) fn transfer(
-        self,
-        storage_transfer: &mut S::Transfer,
+        &self,
+        storage_transfer: &mut S::Transfer<'_>,
         value_id: S::Id,
     ) -> (MemoId<S>, S::Id) {
         let Self(InputEntry {
-            memo_id,
+            memo_id: MemoId { query_id, args_id },
             transfer: transfer_input,
         }) = self;
-        let (next_args_id, next_value_id) =
-            transfer_input(storage_transfer, memo_id.args_id, value_id);
-        memo_id.args_id = next_args_id;
-        (*memo_id, next_value_id)
+        let (next_args_id, next_value_id) = transfer_input(storage_transfer, *args_id, value_id);
+        let next_memo_id = MemoId {
+            query_id: *query_id,
+            args_id: next_args_id,
+        };
+        (next_memo_id, next_value_id)
     }
 }
 

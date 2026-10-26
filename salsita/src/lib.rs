@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use crate::barrier::ExclusiveBarrier;
+use crate::event::Event;
 use crate::event::ScopedEvent;
 use crate::event::ScopedEventKind;
 use crate::memo::MemoId;
@@ -334,20 +335,32 @@ where
             rev: _,
             should_cancel: _,
         } = self;
-        let mut storage_transfer = mem::take(storage).into_transfer();
-        let inputs_transfer = inputs.transfer();
-        let mut memos_transfer = memos.transfer(inputs_transfer.len());
-        let mut input_queries = HashSet::with_capacity(inputs_transfer.len());
-        for input in inputs_transfer {
+        let input_count = inputs.len();
+        let mut storage_transfer = storage.transfer();
+        let mut memos_transfer = memos.transfer(input_count);
+        let mut input_queries = HashSet::with_capacity(input_count);
+        let next_inputs = inputs.transfer(|input| {
             let memo_id = input.memo_id();
             input_queries.insert(memo_id.query_id);
             memos_transfer.retain(memo_id, |value_id| {
                 input.transfer(&mut storage_transfer, value_id)
-            });
+            })
+        });
+        let next_memos = memos_transfer.into_memos();
+        let next_storage = storage_transfer.into_storage(handler);
+
+        let prev_memos = {
+            // Replace everything first before droping previous values, since
+            // Drop implementations can panic.
+            let _prev_inputs = mem::replace(inputs, next_inputs);
+            let _prev_storage = mem::replace(storage, next_storage);
+            mem::replace(memos, next_memos)
+        };
+
+        for _ in 0..prev_memos.len() - memos.len() {
+            handler.event(Event::new(event::EventKind::DeregisterMemo));
         }
-        memos_transfer.finish(handler);
         query_ops.retain(handler, |query_id| input_queries.contains(&query_id));
-        *storage = storage_transfer.into_storage(handler);
     }
 }
 
