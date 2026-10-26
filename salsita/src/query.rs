@@ -9,7 +9,6 @@ use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
 use core::marker::PhantomData;
-use core::num::NonZeroUsize;
 use std::sync::RwLock;
 
 pub trait Query: Send + Sync + 'static {
@@ -31,7 +30,7 @@ pub(crate) struct InputRegistry<S>(RwLock<Vec<MemoId<S>>>)
 where
     S: Storage;
 
-pub struct InputId<I>(NonZeroUsize, PhantomData<I>);
+pub struct InputId<I>(usize, PhantomData<I>);
 
 impl<I> Query for I
 where
@@ -56,18 +55,14 @@ where
 {
     pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I> {
         let mut inputs = self.0.write().expect(INCONSISTENT_STATE);
-        let idx = inputs.len();
-        let input_id = InputId(
-            NonZeroUsize::new(idx + 1).expect("bug: input ID overflow"),
-            PhantomData,
-        );
+        let input_id = InputId(inputs.len(), PhantomData);
         let memo_id = f(input_id);
         inputs.push(memo_id);
         input_id
     }
 
     pub(crate) fn memo_id<I>(&self, input_id: InputId<I>) -> MemoId<S> {
-        let idx = input_id.0.get() - 1;
+        let InputId(idx, _) = input_id;
         *self
             .0
             .read()

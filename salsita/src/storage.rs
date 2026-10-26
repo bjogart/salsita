@@ -8,7 +8,6 @@ use core::any::Any;
 use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
-use core::num::NonZeroUsize;
 use core::ops::Deref;
 use std::collections::HashMap;
 use std::hash::RandomState;
@@ -87,7 +86,7 @@ type FingerprintHasher = RandomState;
 type Bucket = Vec<DefaultStorageId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct DefaultStorageId(NonZeroUsize);
+pub struct DefaultStorageId(usize);
 
 impl Storage for DefaultStorage {
     type Id = DefaultStorageId;
@@ -218,11 +217,11 @@ impl Transfer for DefaultTransfer {
 
 impl DefaultStorageId {
     const fn new(idx: usize) -> Self {
-        Self(NonZeroUsize::new(idx + 1).expect("bug: storage ID overflow"))
+        Self(idx)
     }
 
     const fn idx(self) -> usize {
-        self.0.get() - 1
+        self.0
     }
 }
 

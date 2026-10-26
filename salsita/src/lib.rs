@@ -25,7 +25,6 @@ use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
 use core::mem;
-use core::num::NonZeroUsize;
 use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
@@ -83,7 +82,7 @@ where
 struct GlobalRevision(AtomicUsize);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Revision(NonZeroUsize);
+struct Revision(usize);
 
 #[derive(Debug)]
 struct ActiveQueryStack<S>(Vec<ActiveQuery<S>>)
@@ -409,23 +408,22 @@ where
 
 impl GlobalRevision {
     fn bump(&self) -> Revision {
-        self.0.fetch_add(1, Ordering::AcqRel);
-        self.get()
+        Revision(self.0.fetch_add(1, Ordering::AcqRel) + 1)
     }
 
     fn get(&self) -> Revision {
-        Revision(NonZeroUsize::new(self.0.load(Ordering::Acquire)).expect("revision overflow"))
+        Revision(self.0.load(Ordering::Acquire))
     }
 }
 
 impl Default for GlobalRevision {
     fn default() -> Self {
-        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0.get() + 1))
+        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0 + 1))
     }
 }
 
 impl Revision {
-    const NEVER_VERIFIED: Self = Self(NonZeroUsize::new(1).unwrap());
+    const NEVER_VERIFIED: Self = Self(0);
 }
 
 pub(crate) fn panic_expected_different_type<T>() -> ! {
