@@ -4,11 +4,9 @@ use crate::event;
 use crate::event::Event;
 use crate::event::EventKind;
 use crate::panic_expected_different_type;
-use crate::query::InputId;
 use crate::query::Query;
 use crate::storage::Handle as _;
 use crate::storage::Storage;
-use crate::storage::Transfer as _;
 use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
@@ -17,11 +15,6 @@ use std::sync::RwLock;
 
 #[derive(Debug)]
 pub(crate) struct QueryOpsRegistry<S, H>(RwLock<QueryOpsRegistryInner<S, H>>)
-where
-    S: Storage;
-
-#[derive(Debug)]
-pub(crate) struct QueryOpsRegistryTransfer<S, H>(QueryOpsRegistryInner<S, H>)
 where
     S: Storage;
 
@@ -37,7 +30,6 @@ where
 {
     pub(crate) eval: Eval<S, H>,
     pub(crate) store_output: StoreOut<S, H>,
-    pub(crate) transfer_input_memo_values: TransferInputMemoValues<S>,
 }
 
 type Eval<S, H> =
@@ -45,12 +37,6 @@ type Eval<S, H> =
 
 type StoreOut<S, H> =
     fn(storage: &S, handler: &H, value: &(dyn Any + Send + Sync)) -> <S as Storage>::Id;
-
-type TransferInputMemoValues<S> = fn(
-    transfer: &mut <S as Storage>::Transfer,
-    curr_args_id: <S as Storage>::Id,
-    value_id: <S as Storage>::Id,
-) -> (<S as Storage>::Id, <S as Storage>::Id);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(crate) struct QueryId(TypeId);
@@ -77,8 +63,14 @@ where
         self.0.read().expect(INCONSISTENT_STATE).get(query_id)
     }
 
-    pub(crate) fn into_transfer(self) -> QueryOpsRegistryTransfer<S, H> {
-        QueryOpsRegistryTransfer(self.0.into_inner().expect(INCONSISTENT_STATE))
+    pub(crate) fn retain(&mut self, handler: &H, retain: impl Fn(QueryId) -> bool)
+    where
+        H: event::Handler,
+    {
+        self.0
+            .get_mut()
+            .expect(INCONSISTENT_STATE)
+            .retain(handler, retain);
     }
 }
 
@@ -88,26 +80,6 @@ where
 {
     fn default() -> Self {
         Self(RwLock::default())
-    }
-}
-
-impl<S, H> QueryOpsRegistryTransfer<S, H>
-where
-    S: Storage,
-{
-    pub(crate) fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>> {
-        self.0.get(query_id)
-    }
-
-    pub(crate) fn remove(&mut self, handler: &H, query_id: QueryId)
-    where
-        H: event::Handler,
-    {
-        self.0.remove(handler, query_id)
-    }
-
-    pub(crate) fn into_registry(self) -> QueryOpsRegistry<S, H> {
-        self.0.into_registry()
     }
 }
 
@@ -132,18 +104,18 @@ where
         self.0.get(&query_id).copied()
     }
 
-    fn remove(&mut self, handler: &H, query_id: QueryId)
+    fn retain(&mut self, handler: &H, keep: impl Fn(QueryId) -> bool)
     where
         H: event::Handler,
     {
-        if let Some(_) = self.0.remove(&query_id) {
-            handler.event(Event::new(EventKind::DeregisterQueryOps));
-        }
-    }
-
-    fn into_registry(mut self) -> QueryOpsRegistry<S, H> {
+        self.0.retain(|query_id, _| {
+            let kept = keep(*query_id);
+            if !kept {
+                handler.event(Event::new(EventKind::DeregisterQueryOps));
+            }
+            kept
+        });
         self.0.shrink_to_fit();
-        QueryOpsRegistry(RwLock::new(self))
     }
 }
 
@@ -168,7 +140,6 @@ where
         return Self {
             eval: eval::<S, H, Q>,
             store_output: store_output::<S, H, Q::Out>,
-            transfer_input_memo_values: transfer_input_memo_values::<S, Q>,
         };
 
         fn eval<S, H, Q>(snapshot: &Snapshot<S, H>, args: S::Handle) -> Box<dyn Any + Send + Sync>
@@ -192,20 +163,6 @@ where
                 panic_expected_different_type::<&T>()
             };
             storage.store(handler, out)
-        }
-
-        fn transfer_input_memo_values<S, Q>(
-            transfer: &mut S::Transfer,
-            curr_args_id: S::Id,
-            curr_value_id: S::Id,
-        ) -> (S::Id, S::Id)
-        where
-            Q: Query,
-            S: Storage,
-        {
-            let next_args_id = transfer.transfer::<InputId<Q>>(curr_args_id);
-            let value_id = transfer.transfer::<Q::Out>(curr_value_id);
-            (next_args_id, value_id)
         }
     }
 }

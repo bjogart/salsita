@@ -1,10 +1,8 @@
 extern crate alloc;
 
 use crate::barrier::ExclusiveBarrier;
-use crate::event::Event;
 use crate::event::ScopedEvent;
 use crate::event::ScopedEventKind;
-use crate::memo::MemoEntry;
 use crate::memo::MemoId;
 use crate::memo::Memos;
 use crate::query::Input;
@@ -12,7 +10,6 @@ use crate::query::InputId;
 use crate::query::InputRegistry;
 use crate::query::Query;
 use crate::query_ops::QueryOpsRegistry;
-use crate::query_ops::QueryOpsRegistryTransfer;
 use crate::storage::DefaultStorage;
 use crate::storage::Handle;
 use crate::storage::Storage;
@@ -28,6 +25,7 @@ use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
+use std::collections::HashSet;
 
 mod barrier;
 pub mod event;
@@ -159,57 +157,9 @@ where
         H: event::Handler,
     {
         self.barrier.wait_for_exclusive_access(&mut self.global);
-        let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
-
-        let mut storage_transfer = mem::take(&mut global.storage).into_transfer();
-        let mut query_ops_transfer = mem::take(&mut global.query_ops).into_transfer();
-        let inputs_transfer = mem::take(&mut global.inputs).into_transfer();
-        let memos = mem::take(&mut global.memos)
-            .into_iter()
-            .filter_map(|(mut memo_id, mut memo)| {
-                if !inputs_transfer.is_input(memo_id) {
-                    return ignore_memo(&global.handler, &mut query_ops_transfer, memo_id);
-                }
-                let Some(value_id) = memo.value_id else {
-                    return ignore_memo(&global.handler, &mut query_ops_transfer, memo_id);
-                };
-
-                let ops = query_ops_transfer
-                    .get(memo_id.query_id)
-                    .expect(QUERY_NOT_REGISTERED);
-                let (next_args_id, next_value_id) = (ops.transfer_input_memo_values)(
-                    &mut storage_transfer,
-                    memo_id.args_id,
-                    value_id,
-                );
-                memo_id.args_id = next_args_id;
-                memo.value_id = Some(next_value_id);
-                Some((memo_id, memo))
-            })
-            .collect();
-
-        let _dummy_query_ops =
-            mem::replace(&mut global.query_ops, query_ops_transfer.into_registry());
-        let _dummy_inputs = mem::replace(&mut global.inputs, inputs_transfer.into_registry());
-        let _dummy_storage = mem::replace(
-            &mut global.storage,
-            storage_transfer.into_storage(&global.handler),
-        );
-        let _dummy_memos = mem::replace(&mut global.memos, memos);
-
-        fn ignore_memo<S, H>(
-            handler: &H,
-            query_ops_transfer: &mut QueryOpsRegistryTransfer<S, H>,
-            memo_id: MemoId<S>,
-        ) -> Option<(MemoId<S>, MemoEntry<S>)>
-        where
-            S: Storage,
-            H: event::Handler,
-        {
-            handler.event(Event::new(event::EventKind::DeregisterMemo));
-            query_ops_transfer.remove(handler, memo_id.query_id);
-            None
-        }
+        Arc::get_mut(&mut self.global)
+            .expect(GLOBAL_NOT_EXCLUSIVE)
+            .gc();
     }
 
     #[must_use]
@@ -364,6 +314,40 @@ where
 
     fn deref(&self) -> &Self::Target {
         &self.db
+    }
+}
+
+impl<S, H> GlobalState<S, H>
+where
+    S: Storage,
+{
+    fn gc(&mut self)
+    where
+        H: event::Handler,
+    {
+        let Self {
+            inputs,
+            storage,
+            memos,
+            query_ops,
+            handler,
+            rev: _,
+            should_cancel: _,
+        } = self;
+        let mut storage_transfer = mem::take(storage).into_transfer();
+        let inputs_transfer = inputs.transfer();
+        let mut memos_transfer = memos.transfer(inputs_transfer.len());
+        let mut input_queries = HashSet::with_capacity(inputs_transfer.len());
+        for input in inputs_transfer {
+            let memo_id = input.memo_id();
+            input_queries.insert(memo_id.query_id);
+            memos_transfer.retain(memo_id, |value_id| {
+                input.transfer(&mut storage_transfer, value_id)
+            });
+        }
+        memos_transfer.finish(handler);
+        query_ops.retain(handler, |query_id| input_queries.contains(&query_id));
+        *storage = storage_transfer.into_storage(handler);
     }
 }
 

@@ -10,20 +10,28 @@ use core::fmt::Debug;
 use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
+use core::mem;
 use std::collections::HashMap;
-use std::collections::hash_map;
 use std::sync::RwLock;
 
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
 #[derive(Debug)]
-pub(crate) struct Memos<S>(RwLock<HashMap<MemoId<S>, RwLock<MemoEntry<S>>>>)
+pub(crate) struct Memos<S>(RwLock<MemoMap<S>>)
 where
     S: Storage;
 
-pub(crate) struct MemosIter<S>(hash_map::IntoIter<MemoId<S>, RwLock<MemoEntry<S>>>)
+#[must_use]
+#[derive(Debug)]
+pub(crate) struct MemosTransfer<'memos, S>
 where
-    S: Storage;
+    S: Storage,
+{
+    prev: MemoMap<S>,
+    next: &'memos mut MemoMap<S>,
+}
+
+type MemoMap<S> = HashMap<MemoId<S>, RwLock<MemoEntry<S>>>;
 
 pub(crate) struct MemoId<S>
 where
@@ -111,34 +119,40 @@ where
             .read()
             .expect(INCONSISTENT_STATE))
     }
-}
 
-impl<S> IntoIterator for Memos<S>
-where
-    S: Storage,
-{
-    type Item = (MemoId<S>, MemoEntry<S>);
-
-    type IntoIter = MemosIter<S>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        MemosIter(self.0.into_inner().expect(INCONSISTENT_STATE).into_iter())
+    pub(crate) fn transfer(&mut self, capacity: usize) -> MemosTransfer<'_, S> {
+        let memos = self.0.get_mut().expect(INCONSISTENT_STATE);
+        let prev = mem::replace(memos, HashMap::with_capacity(capacity));
+        MemosTransfer { prev, next: memos }
     }
 }
 
-impl<S> FromIterator<(MemoId<S>, MemoEntry<S>)> for Memos<S>
+impl<S> MemosTransfer<'_, S>
 where
     S: Storage,
 {
-    fn from_iter<T>(iter: T) -> Self
+    pub(crate) fn retain<F>(&mut self, memo_id: MemoId<S>, transfer: F)
     where
-        T: IntoIterator<Item = (MemoId<S>, MemoEntry<S>)>,
+        F: FnOnce(S::Id) -> (MemoId<S>, S::Id),
     {
-        Self(RwLock::new(
-            iter.into_iter()
-                .map(|(memo_id, memo)| (memo_id, RwLock::new(memo)))
-                .collect(),
-        ))
+        let mut memo = self.prev.remove(&memo_id).expect(UNKNOWN_ID);
+        let entry = memo.get_mut().expect(INCONSISTENT_STATE);
+        let value_id = entry
+            .value_id
+            .expect("bug: transferred memo has no stored value");
+        let (next_memo_id, next_value_id) = transfer(value_id);
+        entry.value_id = Some(next_value_id);
+        self.next.insert(next_memo_id, memo);
+    }
+
+    pub(crate) fn finish<H>(self, handler: &H)
+    where
+        H: event::Handler,
+    {
+        let Self { prev, next: _next } = self;
+        for _ in 0..prev.len() {
+            handler.event(Event::new(EventKind::DeregisterMemo));
+        }
     }
 }
 
@@ -148,20 +162,6 @@ where
 {
     fn default() -> Self {
         Self(RwLock::default())
-    }
-}
-
-impl<S> Iterator for MemosIter<S>
-where
-    S: Storage,
-{
-    type Item = (MemoId<S>, MemoEntry<S>);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|(memo_id, memo)| {
-            let memo = memo.into_inner().expect(INCONSISTENT_STATE);
-            (memo_id, memo)
-        })
     }
 }
 
