@@ -8,13 +8,13 @@ license = "MIT OR Apache-2.0"
 edition = "2024"
 
 [workspace.dependencies]
-anyhow = { version = "1.0.98", default-features = false }
+anyhow = { version = "1.0.104", default-features = false }
 salsita = { path = "salsita", default-features = false }
-serde = { version = "1.0.228", default-features = false, features = [
+serde = { version = "1.0.229", default-features = false, features = [
   "derive",
   "std",
 ] }
-serde_json = { version = "1.0.145", default-features = false, features = [
+serde_json = { version = "1.0.154", default-features = false, features = [
   "alloc",
 ] }
 xflags = { version = "0.3.2", default-features = false }
