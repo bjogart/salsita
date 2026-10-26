@@ -31,7 +31,7 @@ where
     S: Storage;
 
 #[derive(Debug)]
-pub(crate) struct InputRegistryInner<S>(Vec<MemoId<S>>)
+pub(crate) struct InputRegistryTransfer<S>(Vec<MemoId<S>>)
 where
     S: Storage;
 
@@ -76,12 +76,12 @@ where
             .expect("bug: unknown input ID (was this ID created by another database?)")
     }
 
-    pub(crate) fn into_inner(self) -> InputRegistryInner<S> {
-        InputRegistryInner(self.0.into_inner().expect(INCONSISTENT_STATE))
+    pub(crate) fn into_transfer(self) -> InputRegistryTransfer<S> {
+        InputRegistryTransfer(self.0.into_inner().expect(INCONSISTENT_STATE))
     }
 }
 
-impl<S> InputRegistryInner<S>
+impl<S> InputRegistryTransfer<S>
 where
     S: Storage,
 {

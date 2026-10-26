@@ -21,7 +21,12 @@ where
     S: Storage;
 
 #[derive(Debug)]
-pub(crate) struct QueryOpsRegistryInner<S, H>(HashMap<QueryId, QueryOps<S, H>>)
+pub(crate) struct QueryOpsRegistryTransfer<S, H>(QueryOpsRegistryInner<S, H>)
+where
+    S: Storage;
+
+#[derive(Debug)]
+struct QueryOpsRegistryInner<S, H>(HashMap<QueryId, QueryOps<S, H>>)
 where
     S: Storage;
 
@@ -72,8 +77,8 @@ where
         self.0.read().expect(INCONSISTENT_STATE).get(query_id)
     }
 
-    pub(crate) fn into_inner(self) -> QueryOpsRegistryInner<S, H> {
-        self.0.into_inner().expect(INCONSISTENT_STATE)
+    pub(crate) fn into_transfer(self) -> QueryOpsRegistryTransfer<S, H> {
+        QueryOpsRegistryTransfer(self.0.into_inner().expect(INCONSISTENT_STATE))
     }
 }
 
@@ -83,6 +88,26 @@ where
 {
     fn default() -> Self {
         Self(RwLock::default())
+    }
+}
+
+impl<S, H> QueryOpsRegistryTransfer<S, H>
+where
+    S: Storage,
+{
+    pub(crate) fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>> {
+        self.0.get(query_id)
+    }
+
+    pub(crate) fn remove(&mut self, handler: &H, query_id: QueryId)
+    where
+        H: event::Handler,
+    {
+        self.0.remove(handler, query_id)
+    }
+
+    pub(crate) fn into_registry(self) -> QueryOpsRegistry<S, H> {
+        self.0.into_registry()
     }
 }
 
@@ -103,11 +128,11 @@ where
         query_id
     }
 
-    pub(crate) fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>> {
+    fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>> {
         self.0.get(&query_id).copied()
     }
 
-    pub(crate) fn remove(&mut self, handler: &H, query_id: QueryId)
+    fn remove(&mut self, handler: &H, query_id: QueryId)
     where
         H: event::Handler,
     {
@@ -116,7 +141,7 @@ where
         }
     }
 
-    pub(crate) fn into_registry(mut self) -> QueryOpsRegistry<S, H> {
+    fn into_registry(mut self) -> QueryOpsRegistry<S, H> {
         self.0.shrink_to_fit();
         QueryOpsRegistry(RwLock::new(self))
     }
