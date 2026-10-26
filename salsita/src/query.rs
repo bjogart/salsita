@@ -30,6 +30,11 @@ pub(crate) struct InputRegistry<S>(RwLock<Vec<MemoId<S>>>)
 where
     S: Storage;
 
+#[derive(Debug)]
+pub(crate) struct InputRegistryInner<S>(Vec<MemoId<S>>)
+where
+    S: Storage;
+
 pub struct InputId<I>(usize, PhantomData<I>);
 
 impl<I> Query for I
@@ -69,6 +74,27 @@ where
             .expect(INCONSISTENT_STATE)
             .get(idx)
             .expect("bug: unknown input ID (was this ID created by another database?)")
+    }
+
+    pub(crate) fn into_inner(self) -> InputRegistryInner<S> {
+        InputRegistryInner(self.0.into_inner().expect(INCONSISTENT_STATE))
+    }
+}
+
+impl<S> InputRegistryInner<S>
+where
+    S: Storage,
+{
+    pub(crate) fn is_input(&self, memo_id: MemoId<S>) -> bool {
+        self.0.contains(&memo_id)
+    }
+
+    pub(crate) fn into_registry(self) -> InputRegistry<S>
+    where
+        S: Storage,
+    {
+        let Self(registry) = self;
+        InputRegistry(RwLock::new(registry))
     }
 }
 

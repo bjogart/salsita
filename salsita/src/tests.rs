@@ -291,6 +291,14 @@ fn unchanged_nested_reevaluation_preserves_caller_deps() {
     assert_eq!(*db.snapshot().query::<DeliveredBurritoPrice>(&args), 10);
 }
 
+#[test]
+fn garbage_collection_handles_derived_queries_without_deps() {
+    let mut db: Db = Db::default();
+    assert_eq!(*db.snapshot().query::<SalsaCupGrams>(&3), 120);
+    db.gc();
+    assert_eq!(*db.snapshot().query::<SalsaCupGrams>(&3), 120);
+}
+
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
@@ -655,5 +663,19 @@ impl Query for DeliveredBurritoPrice {
     {
         let (price, pickup, fee) = args;
         *snapshot.query::<BurritoPrice>(price) + *snapshot.query::<DeliveryCost>(&(*pickup, *fee))
+    }
+}
+
+struct SalsaCupGrams;
+impl Query for SalsaCupGrams {
+    type Args = usize;
+    type Out = usize;
+
+    fn eval<S, H>(_: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        args * 40
     }
 }
