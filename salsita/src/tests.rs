@@ -7,15 +7,20 @@ use crate::query::InputId;
 use crate::query::Query;
 use crate::storage::DefaultStorage;
 use crate::storage::Storage;
+use core::cell::Cell;
 use core::fmt::Debug;
+use core::hash::Hash;
+use core::hash::Hasher;
 use core::ops::Sub;
+use std::panic;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::thread;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Default, Debug)]
 struct Counts {
     query_count: usize,
     eval_count: usize,
@@ -311,6 +316,52 @@ fn inputs_can_be_set_after_garbage_collection() {
     db.set_input(count, &5);
     assert_eq!(*db.snapshot().query::<BurritoCount>(&count), 5);
     assert_eq!(*db.snapshot().query::<BurritoPrice>(&price), 8);
+}
+
+#[test]
+fn panicking_garbage_collection_leaves_db_unchanged() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    // Store a derived value between the two inputs, so that collecting it moves
+    // the second input to a different storage ID.
+    assert_eq!(*db.snapshot().query::<BurritoPriceWithShipping>(&price), 10);
+    let count = db.new_input::<FragileCount>(&Fragile(3));
+    assert_eq!(
+        *db.snapshot().query::<FragileTotalPrice>(&(price, count)),
+        30
+    );
+    // The first input transfers successfully before the second one panics.
+    let before = Counts::new(&db.snapshot());
+    PANIC_ON_HASH.set(true);
+    let result = panic::catch_unwind(AssertUnwindSafe(|| db.gc()));
+    assert!(result.is_err());
+    PANIC_ON_HASH.set(false);
+    assert_eq!(Counts::new(&db.snapshot()) - before, Counts::default());
+    // Memos survived, so the derived query is not re-evaluated.
+    assert_query_delta::<FragileTotalPrice>(
+        &db,
+        &(price, count),
+        &30,
+        Counts {
+            query_count: 1,
+            eval_count: 0,
+            registered_query_ops: 0,
+            stored_values: 0,
+            memo_count: 0,
+        },
+    );
+    db.set_input(count, &Fragile(2));
+    assert_eq!(
+        *db.snapshot().query::<FragileTotalPrice>(&(price, count)),
+        20
+    );
+    // Subsequent garbage collection succeeds.
+    db.gc();
+    db.set_input(price, &4);
+    assert_eq!(
+        *db.snapshot().query::<FragileTotalPrice>(&(price, count)),
+        12
+    );
 }
 
 fn init_inputs(
@@ -691,5 +742,45 @@ impl Query for SalsaCupGrams {
         H: event::Handler,
     {
         args * 40
+    }
+}
+
+thread_local! {
+    static PANIC_ON_HASH: Cell<bool> = const { Cell::new(false) };
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Fragile(usize);
+
+impl Hash for Fragile {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        assert!(
+            !PANIC_ON_HASH.get(),
+            "injected panic while hashing `Fragile`"
+        );
+        self.0.hash(state);
+    }
+}
+
+struct FragileCount;
+impl Input for FragileCount {
+    type Value = Fragile;
+}
+
+struct FragileTotalPrice;
+impl Query for FragileTotalPrice {
+    type Args = (InputId<BurritoPrice>, InputId<FragileCount>);
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        let (price, count) = args;
+        *snapshot.query::<BurritoPriceWithShipping>(price) * snapshot.query::<FragileCount>(count).0
     }
 }

@@ -10,9 +10,9 @@ use core::fmt::Debug;
 use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
-use core::mem;
 use std::collections::HashMap;
 use std::sync::RwLock;
+use std::sync::RwLockReadGuard;
 
 const UNKNOWN_ID: &str = "bug: unknown memo ID (was this ID created by another database?)";
 
@@ -27,8 +27,8 @@ pub(crate) struct MemosTransfer<'memos, S>
 where
     S: Storage,
 {
-    prev: MemoMap<S>,
-    next: &'memos mut MemoMap<S>,
+    curr: RwLockReadGuard<'memos, MemoMap<S>>,
+    next: MemoMap<S>,
 }
 
 type MemoMap<S> = HashMap<MemoId<S>, RwLock<MemoEntry<S>>>;
@@ -120,10 +120,15 @@ where
             .expect(INCONSISTENT_STATE))
     }
 
-    pub(crate) fn transfer(&mut self, capacity: usize) -> MemosTransfer<'_, S> {
-        let memos = self.0.get_mut().expect(INCONSISTENT_STATE);
-        let prev = mem::replace(memos, HashMap::with_capacity(capacity));
-        MemosTransfer { prev, next: memos }
+    pub(crate) fn len(&self) -> usize {
+        self.0.read().expect(INCONSISTENT_STATE).len()
+    }
+
+    pub(crate) fn transfer(&self, capacity: usize) -> MemosTransfer<'_, S> {
+        MemosTransfer {
+            curr: self.0.read().expect(INCONSISTENT_STATE),
+            next: HashMap::with_capacity(capacity),
+        }
     }
 }
 
@@ -131,28 +136,48 @@ impl<S> MemosTransfer<'_, S>
 where
     S: Storage,
 {
-    pub(crate) fn retain<F>(&mut self, memo_id: MemoId<S>, transfer: F)
+    pub(crate) fn retain<F>(&mut self, memo_id: MemoId<S>, transfer: F) -> MemoId<S>
     where
         F: FnOnce(S::Id) -> (MemoId<S>, S::Id),
     {
-        let mut memo = self.prev.remove(&memo_id).expect(UNKNOWN_ID);
-        let entry = memo.get_mut().expect(INCONSISTENT_STATE);
-        let value_id = entry
-            .value_id
-            .expect("bug: transferred memo has no stored value");
+        let (last_verified, last_changed, value_id) = {
+            let MemoEntry {
+                deps,
+                last_verified,
+                last_changed,
+                value_id,
+            } = &*self
+                .curr
+                .get(&memo_id)
+                .expect(UNKNOWN_ID)
+                .read()
+                .expect(INCONSISTENT_STATE);
+            assert!(
+                deps.is_empty(),
+                "bug: transferred input memo has dependencies"
+            );
+            let value_id = value_id.expect("bug: transferred input memo has no stored value");
+            (*last_verified, *last_changed, value_id)
+        };
         let (next_memo_id, next_value_id) = transfer(value_id);
-        entry.value_id = Some(next_value_id);
-        self.next.insert(next_memo_id, memo);
+        self.next.insert(
+            next_memo_id,
+            RwLock::new(MemoEntry {
+                deps: Vec::new(),
+                last_verified,
+                last_changed,
+                value_id: Some(next_value_id),
+            }),
+        );
+        next_memo_id
     }
 
-    pub(crate) fn finish<H>(self, handler: &H)
-    where
-        H: event::Handler,
-    {
-        let Self { prev, next: _next } = self;
-        for _ in 0..prev.len() {
-            handler.event(Event::new(EventKind::DeregisterMemo));
-        }
+    pub(crate) fn into_memos(self) -> Memos<S> {
+        let next = {
+            let Self { next, curr: _curr } = self;
+            next
+        };
+        Memos(RwLock::new(next))
     }
 }
 
