@@ -12,7 +12,7 @@ use crate::query::InputId;
 use crate::query::InputRegistry;
 use crate::query::Query;
 use crate::query_ops::QueryOpsRegistry;
-use crate::query_ops::QueryOpsRegistryInner;
+use crate::query_ops::QueryOpsRegistryTransfer;
 use crate::storage::DefaultStorage;
 use crate::storage::Handle;
 use crate::storage::Storage;
@@ -162,19 +162,19 @@ where
         let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
 
         let mut storage_transfer = mem::take(&mut global.storage).into_transfer();
-        let mut query_ops_inner = mem::take(&mut global.query_ops).into_inner();
-        let inputs_inner = mem::take(&mut global.inputs).into_inner();
+        let mut query_ops_transfer = mem::take(&mut global.query_ops).into_transfer();
+        let inputs_transfer = mem::take(&mut global.inputs).into_transfer();
         let memos = mem::take(&mut global.memos)
             .into_iter()
             .filter_map(|(mut memo_id, mut memo)| {
-                if !inputs_inner.is_input(memo_id) {
-                    return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
+                if !inputs_transfer.is_input(memo_id) {
+                    return ignore_memo(&global.handler, &mut query_ops_transfer, memo_id);
                 }
                 let Some(value_id) = memo.value_id else {
-                    return ignore_memo(&global.handler, &mut query_ops_inner, memo_id);
+                    return ignore_memo(&global.handler, &mut query_ops_transfer, memo_id);
                 };
 
-                let ops = query_ops_inner
+                let ops = query_ops_transfer
                     .get(memo_id.query_id)
                     .expect(QUERY_NOT_REGISTERED);
                 let (next_args_id, next_value_id) = (ops.transfer_input_memo_values)(
@@ -188,8 +188,9 @@ where
             })
             .collect();
 
-        let _dummy_query_ops = mem::replace(&mut global.query_ops, query_ops_inner.into_registry());
-        let _dummy_inputs = mem::replace(&mut global.inputs, inputs_inner.into_registry());
+        let _dummy_query_ops =
+            mem::replace(&mut global.query_ops, query_ops_transfer.into_registry());
+        let _dummy_inputs = mem::replace(&mut global.inputs, inputs_transfer.into_registry());
         let _dummy_storage = mem::replace(
             &mut global.storage,
             storage_transfer.into_storage(&global.handler),
@@ -198,7 +199,7 @@ where
 
         fn ignore_memo<S, H>(
             handler: &H,
-            query_ops_inner: &mut QueryOpsRegistryInner<S, H>,
+            query_ops_transfer: &mut QueryOpsRegistryTransfer<S, H>,
             memo_id: MemoId<S>,
         ) -> Option<(MemoId<S>, MemoEntry<S>)>
         where
@@ -206,7 +207,7 @@ where
             H: event::Handler,
         {
             handler.event(Event::new(event::EventKind::DeregisterMemo));
-            query_ops_inner.remove(handler, memo_id.query_id);
+            query_ops_transfer.remove(handler, memo_id.query_id);
             None
         }
     }
