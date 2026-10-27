@@ -136,17 +136,14 @@ impl PerfHandler {
             eval_time,
             query_count,
             eval_count,
-            registered_query_ops,
-            stored_values,
-            memo_count,
+            registered_query_ops: _,
+            stored_values: _,
+            memo_count: _,
         } = self;
         query_time.reset();
         eval_time.reset();
         query_count.store(0, Ordering::Release);
         eval_count.store(0, Ordering::Release);
-        registered_query_ops.store(0, Ordering::Release);
-        stored_values.store(0, Ordering::Release);
-        memo_count.store(0, Ordering::Release);
     }
 
     pub fn query_time(&self) -> Duration {
