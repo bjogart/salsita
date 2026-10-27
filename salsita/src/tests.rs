@@ -334,8 +334,8 @@ fn panicking_garbage_collection_leaves_db_unchanged() {
     let before = Counts::new(&db.snapshot());
     PANIC_ON_HASH.set(true);
     let result = panic::catch_unwind(AssertUnwindSafe(|| db.gc()));
-    assert!(result.is_err());
     PANIC_ON_HASH.set(false);
+    assert!(result.is_err());
     assert_eq!(Counts::new(&db.snapshot()) - before, Counts::default());
     // Memos survived, so the derived query is not re-evaluated.
     assert_query_delta::<FragileTotalPrice>(
