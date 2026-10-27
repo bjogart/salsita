@@ -350,7 +350,7 @@ where
         let next_storage = storage_transfer.into_storage(handler);
 
         let prev_memos = {
-            // Replace everything first before droping previous values, since
+            // Replace everything first before dropping collected values, since
             // Drop implementations can panic.
             let _prev_inputs = mem::replace(inputs, next_inputs);
             let _prev_storage = mem::replace(storage, next_storage);
