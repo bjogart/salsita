@@ -357,9 +357,9 @@ where
             mem::replace(memos, next_memos)
         };
 
-        for _ in 0..prev_memos.len() - memos.len() {
-            handler.event(Event::new(event::EventKind::DeregisterMemo));
-        }
+        handler.event(Event::new(event::EventKind::DeregisterMemos(
+            prev_memos.len() - memos.len(),
+        )));
         query_ops.retain(handler, |query_id| input_queries.contains(&query_id));
     }
 }
