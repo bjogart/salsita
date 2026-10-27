@@ -134,12 +134,14 @@ where
         let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
         global.should_cancel.store(false, Ordering::Release);
 
-        let current_rev = global.rev.bump();
-        let args_id = global.inputs.memo_id(input_id);
-        let mut commit = PendingCommit::new(current_rev, args_id);
-        let value_id = global.storage.store(&global.handler, value);
-        commit.new_value_id = Some(value_id);
-        let _update = MemoUpdate::new(&global.memos, commit);
+        let memo_id = global.inputs.memo_id(input_id);
+        let new_value_id = global.storage.store(&global.handler, value);
+        if new_value_id != memo_id.args_id {
+            let current_rev = global.rev.bump();
+            let mut commit = PendingCommit::new(current_rev, memo_id);
+            commit.new_value_id = Some(new_value_id);
+            let _update = MemoUpdate::new(&global.memos, commit);
+        }
     }
 
     #[must_use]
