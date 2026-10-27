@@ -15,7 +15,6 @@ use crate::storage::DefaultStorage;
 use crate::storage::Handle;
 use crate::storage::Storage;
 use crate::storage::Transfer as _;
-use crate::update::MemoUpdate;
 use crate::update::PendingCommit;
 use crate::update::QueryUpdate;
 use alloc::sync::Arc;
@@ -140,7 +139,7 @@ where
             let current_rev = global.rev.bump();
             let mut commit = PendingCommit::new(current_rev, memo_id);
             commit.new_value_id = Some(new_value_id);
-            let _update = MemoUpdate::new(&global.memos, commit);
+            commit.apply(&global.memos);
         }
     }
 
@@ -246,7 +245,7 @@ where
             .get(memo_id.query_id)
             .expect(QUERY_NOT_REGISTERED);
         let args = self.global.storage.get(memo_id.args_id);
-        let mut query_update = self.install_query(current_rev, memo_id);
+        let mut query_update = self.install_query();
         let out = {
             let _eval_guard = &self
                 .global
@@ -255,12 +254,11 @@ where
             (ops.eval)(self, args)
         };
         let out = (ops.store_output)(&self.global.storage, &self.global.handler, out.as_ref());
-        if let Some(prev) = self.global.memos.memo(memo_id, |memo| memo.value_id)
-            && out == prev
-        {
-            return;
+        let mut commit = PendingCommit::new(current_rev, memo_id);
+        if self.global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
+            commit.new_value_id = Some(out);
         }
-        query_update.commit.new_value_id = Some(out);
+        query_update.commit = Some(commit);
     }
 
     fn dep_postdates_rev(
@@ -278,14 +276,14 @@ where
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
 
-    fn install_query(&self, current_rev: Revision, memo_id: MemoId<S>) -> QueryUpdate<'_, S, H>
+    fn install_query(&self) -> QueryUpdate<'_, S, H>
     where
         H: event::Handler,
     {
         let mut active_queries = self.active_queries.borrow_mut();
         let ActiveQueryStack(active_queries) = &mut *active_queries;
         active_queries.push(ActiveQuery::default());
-        QueryUpdate::new(self, PendingCommit::new(current_rev, memo_id))
+        QueryUpdate::new(self)
     }
 
     fn track_dep(&self, dep: MemoId<S>) {
