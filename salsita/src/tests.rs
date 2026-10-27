@@ -364,6 +364,94 @@ fn panicking_garbage_collection_leaves_db_unchanged() {
     );
 }
 
+#[test]
+fn panicking_eval_of_new_memo_is_retried() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let count = db.new_input::<BurritoCount>(&3);
+    PANIC_IN_EVAL.set(true);
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        db.snapshot().query::<FlakyTotalPrice>(&(price, count));
+    }));
+    PANIC_IN_EVAL.set(false);
+    assert!(result.is_err());
+    // The memo has no value, so it must be evaluated again in the same
+    // revision.
+    assert_query_delta::<FlakyTotalPrice>(
+        &db,
+        &(price, count),
+        &24,
+        Counts {
+            query_count: 3,
+            eval_count: 1,
+            registered_query_ops: 0,
+            stored_values: 1,
+            memo_count: 0,
+        },
+    );
+}
+
+#[test]
+fn panicking_reevaluation_does_not_keep_stale_value() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let count = db.new_input::<BurritoCount>(&3);
+    assert_eq!(*db.snapshot().query::<FlakyTotalPrice>(&(price, count)), 24);
+    db.set_input(count, &5);
+    // Re-evaluation panics after reading the price, but before reading the
+    // count.
+    PANIC_IN_EVAL.set(true);
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        db.snapshot().query::<FlakyTotalPrice>(&(price, count));
+    }));
+    PANIC_IN_EVAL.set(false);
+    assert!(result.is_err());
+    // The previous value remains stale, so it must be evaluated again.
+    assert_query_delta::<FlakyTotalPrice>(
+        &db,
+        &(price, count),
+        &40,
+        Counts {
+            query_count: 3,
+            eval_count: 1,
+            registered_query_ops: 0,
+            stored_values: 1,
+            memo_count: 0,
+        },
+    );
+    // Both price and count should be recorded as dependencies after evaluation.
+    db.set_input(count, &2);
+    assert_eq!(*db.snapshot().query::<FlakyTotalPrice>(&(price, count)), 16);
+}
+
+#[test]
+fn panicking_nested_eval_is_retried_by_caller() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let count = db.new_input::<BurritoCount>(&3);
+    // The callee panics, which unwinds through the caller's evaluation.
+    PANIC_IN_EVAL.set(true);
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        db.snapshot().query::<FlakyPriceWithVat>(&(price, count));
+    }));
+    PANIC_IN_EVAL.set(false);
+    assert!(result.is_err());
+    // Neither memo has a value, so both must be evaluated again in the same
+    // revision.
+    assert_query_delta::<FlakyPriceWithVat>(
+        &db,
+        &(price, count),
+        &29,
+        Counts {
+            query_count: 4,
+            eval_count: 2,
+            registered_query_ops: 0,
+            stored_values: 2,
+            memo_count: 0,
+        },
+    );
+}
+
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
@@ -782,5 +870,40 @@ impl Query for FragileTotalPrice {
     {
         let (price, count) = args;
         *snapshot.query::<BurritoPriceWithShipping>(price) * snapshot.query::<FragileCount>(count).0
+    }
+}
+
+thread_local! {
+    static PANIC_IN_EVAL: Cell<bool> = const { Cell::new(false) };
+}
+
+struct FlakyTotalPrice;
+impl Query for FlakyTotalPrice {
+    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        let (price, count) = args;
+        let price = *snapshot.query::<BurritoPrice>(price);
+        assert!(!PANIC_IN_EVAL.get(), "injected panic in `FlakyTotalPrice`");
+        price * *snapshot.query::<BurritoCount>(count)
+    }
+}
+
+struct FlakyPriceWithVat;
+impl Query for FlakyPriceWithVat {
+    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        *snapshot.query::<FlakyTotalPrice>(args) + 5
     }
 }

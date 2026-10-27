@@ -11,15 +11,7 @@ where
     S: Storage,
 {
     snapshot: &'snap Snapshot<S, H>,
-    pub(crate) commit: PendingCommit<S>,
-}
-
-pub(crate) struct MemoUpdate<'memos, S>
-where
-    S: Storage,
-{
-    memos: &'memos Memos<S>,
-    commit: PendingCommit<S>,
+    pub(crate) commit: Option<PendingCommit<S>>,
 }
 
 pub(crate) struct PendingCommit<S>
@@ -36,8 +28,11 @@ impl<'snap, S, H> QueryUpdate<'snap, S, H>
 where
     S: Storage,
 {
-    pub(crate) const fn new(snapshot: &'snap Snapshot<S, H>, commit: PendingCommit<S>) -> Self {
-        Self { snapshot, commit }
+    pub(crate) const fn new(snapshot: &'snap Snapshot<S, H>) -> Self {
+        Self {
+            snapshot,
+            commit: None,
+        }
     }
 }
 
@@ -47,49 +42,15 @@ where
 {
     fn drop(&mut self) {
         let Self { snapshot, commit } = self;
-        let mut active_queries = snapshot.active_queries.borrow_mut();
-        let ActiveQueryStack(active_queries) = &mut *active_queries;
-        if let Some(ActiveQuery { deps }) = active_queries.pop() {
-            commit.deps = Some(deps);
+        let deps = {
+            let mut active_queries = snapshot.active_queries.borrow_mut();
+            let ActiveQueryStack(active_queries) = &mut *active_queries;
+            active_queries.pop().map(|ActiveQuery { deps }| deps)
+        };
+        if let Some(mut commit) = commit.take() {
+            commit.deps = deps;
+            commit.apply(&snapshot.db.global.memos);
         }
-        let _update = MemoUpdate::new(&snapshot.db.global.memos, commit.take());
-    }
-}
-
-impl<'memos, S> MemoUpdate<'memos, S>
-where
-    S: Storage,
-{
-    pub(crate) const fn new(memos: &'memos Memos<S>, commit: PendingCommit<S>) -> Self {
-        Self { memos, commit }
-    }
-}
-
-impl<S> Drop for MemoUpdate<'_, S>
-where
-    S: Storage,
-{
-    fn drop(&mut self) {
-        let Self {
-            memos,
-            commit:
-                PendingCommit {
-                    current_rev,
-                    memo_id,
-                    deps,
-                    new_value_id,
-                },
-        } = self;
-        memos.memo_mut(*memo_id, |memo| {
-            memo.last_verified = *current_rev;
-            if let Some(deps) = deps.take() {
-                memo.deps = deps;
-            }
-            if let Some(value_id) = new_value_id.take() {
-                memo.value_id = Some(value_id);
-                memo.last_changed = *current_rev;
-            }
-        });
     }
 }
 
@@ -106,12 +67,22 @@ where
         }
     }
 
-    const fn take(&mut self) -> Self {
-        Self {
-            current_rev: self.current_rev,
-            memo_id: self.memo_id,
-            deps: self.deps.take(),
-            new_value_id: self.new_value_id.take(),
-        }
+    pub(crate) fn apply(self, memos: &Memos<S>) {
+        let Self {
+            current_rev,
+            memo_id,
+            deps,
+            new_value_id,
+        } = self;
+        memos.memo_mut(memo_id, |memo| {
+            memo.last_verified = current_rev;
+            if let Some(deps) = deps {
+                memo.deps = deps;
+            }
+            if let Some(value_id) = new_value_id {
+                memo.value_id = Some(value_id);
+                memo.last_changed = current_rev;
+            }
+        });
     }
 }
