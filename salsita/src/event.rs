@@ -41,7 +41,7 @@ pub enum EventKind {
     StoreValue,
     FreeValues(usize),
     RegisterMemo,
-    DeregisterMemo,
+    DeregisterMemos(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -101,8 +101,8 @@ impl Handler for PerfHandler {
             EventKind::RegisterMemo => {
                 self.memo_count.fetch_add(1, Ordering::AcqRel);
             }
-            EventKind::DeregisterMemo => {
-                self.memo_count.fetch_sub(1, Ordering::AcqRel);
+            EventKind::DeregisterMemos(n) => {
+                self.memo_count.fetch_sub(n, Ordering::AcqRel);
             }
         }
     }
