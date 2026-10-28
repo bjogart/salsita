@@ -21,7 +21,6 @@ use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
 use core::mem;
-use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
@@ -187,22 +186,29 @@ impl<S, H> Snapshot<S, H>
 where
     S: Storage,
 {
+    #[must_use]
+    pub fn event_handler(&self) -> &H {
+        self.db.event_handler()
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> Self {
+        self.db.snapshot()
+    }
+
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
         H: event::Handler,
         Q: Query,
     {
-        let _query_guard = &self
-            .global
+        let global = &self.db.global;
+        let _query_guard = &global
             .handler
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
-        let query_id = self.global.query_ops.query_id::<Q>(&self.global.handler);
-        let args_id = self.global.storage.store(&self.global.handler, args);
-        let memo_id = self
-            .global
-            .memos
-            .memo_id(&self.global.handler, query_id, args_id);
-        self.verify_memo(self.global.rev.get(), memo_id);
+        let query_id = global.query_ops.query_id::<Q>(&global.handler);
+        let args_id = global.storage.store(&global.handler, args);
+        let memo_id = global.memos.memo_id(&global.handler, query_id, args_id);
+        self.verify_memo(global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
 
@@ -213,11 +219,12 @@ where
         self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self
+                .db
                 .global
                 .memos
                 .memo(memo_id, |memo| (memo.last_verified, memo.deps.clone()));
             if last_verified == current_rev
-                || self.should_cancel() && last_verified > Revision::NEVER_VERIFIED
+                || self.db.should_cancel() && last_verified > Revision::NEVER_VERIFIED
             {
                 return;
             }
@@ -227,7 +234,8 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
-            self.global
+            self.db
+                .global
                 .memos
                 .memo_mut(memo_id, |memo| memo.last_verified = current_rev);
             return;
@@ -239,23 +247,22 @@ where
     where
         H: event::Handler,
     {
-        let ops = self
-            .global
+        let global = &self.db.global;
+        let ops = global
             .query_ops
             .get(memo_id.query_id)
             .expect(QUERY_NOT_REGISTERED);
-        let args = self.global.storage.get(memo_id.args_id);
+        let args = global.storage.get(memo_id.args_id);
         let mut query_update = self.install_query();
         let out = {
-            let _eval_guard = &self
-                .global
+            let _eval_guard = &global
                 .handler
                 .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             (ops.eval)(self, args)
         };
-        let out = (ops.store_output)(&self.global.storage, &self.global.handler, out.as_ref());
+        let out = (ops.store_output)(&global.storage, &global.handler, out.as_ref());
         let mut commit = PendingCommit::new(current_rev, memo_id);
-        if self.global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
+        if global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
             commit.new_value_id = Some(out);
         }
         query_update.commit = Some(commit);
@@ -271,7 +278,8 @@ where
         H: event::Handler,
     {
         self.verify_memo(current_rev, dep);
-        self.global
+        self.db
+            .global
             .memos
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
@@ -299,22 +307,12 @@ where
     where
         Q: Query,
     {
-        let value_id = self.global.memos.memo(memo_id, |memo| {
+        let global = &self.db.global;
+        let value_id = global.memos.memo(memo_id, |memo| {
             memo.value_id
                 .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
         });
-        Handle::downcast::<Q::Out>(self.global.storage.get(value_id))
-    }
-}
-
-impl<S, H> Deref for Snapshot<S, H>
-where
-    S: Storage,
-{
-    type Target = Db<S, H>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.db
+        Handle::downcast::<Q::Out>(global.storage.get(value_id))
     }
 }
 
