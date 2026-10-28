@@ -196,7 +196,7 @@ fn modifications_trigger_query_cancellation() {
             cvar.notify_one();
             // Wait for cancellation to be signalled, which is the signal that
             // `set_input` is &blocking.
-            while !snapshot.db.should_cancel() {
+            while !snapshot.should_cancel() {
                 thread::yield_now();
             }
             // Calling a query while the database canceling automatically
