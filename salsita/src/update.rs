@@ -49,7 +49,7 @@ where
         };
         if let Some(mut commit) = commit.take() {
             commit.deps = deps;
-            commit.apply(&snapshot.db.global.memos);
+            commit.apply(&snapshot.db.shared.global.memos);
         }
     }
 }
