@@ -98,6 +98,39 @@ where
         memo_id
     }
 
+    #[expect(clippy::unwrap_in_result, reason = "Panics indicate bugs.")]
+    pub(crate) fn value_id(&self, id: MemoId<S>) -> Option<S::Id> {
+        self.0
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .get(&id)
+            .expect(UNKNOWN_ID)
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .value_id
+    }
+
+    pub(crate) fn last_changed(&self, id: MemoId<S>) -> Revision {
+        self.0
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .get(&id)
+            .expect(UNKNOWN_ID)
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .last_changed
+    }
+
+    pub(crate) fn verification(&self, id: MemoId<S>) -> (Revision, Vec<MemoId<S>>) {
+        let memos = self.0.read().expect(INCONSISTENT_STATE);
+        let memo = memos
+            .get(&id)
+            .expect(UNKNOWN_ID)
+            .read()
+            .expect(INCONSISTENT_STATE);
+        (memo.last_verified, memo.deps.clone())
+    }
+
     pub(crate) fn memo_mut(&self, id: MemoId<S>, f: impl FnOnce(&mut MemoEntry<S>)) {
         f(&mut self
             .0
@@ -106,17 +139,6 @@ where
             .get(&id)
             .expect(UNKNOWN_ID)
             .write()
-            .expect(INCONSISTENT_STATE))
-    }
-
-    pub(crate) fn memo<T>(&self, id: MemoId<S>, f: impl FnOnce(&MemoEntry<S>) -> T) -> T {
-        f(&self
-            .0
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .get(&id)
-            .expect(UNKNOWN_ID)
-            .read()
             .expect(INCONSISTENT_STATE))
     }
 

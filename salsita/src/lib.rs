@@ -247,11 +247,7 @@ where
     {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
-            let (last_verified, deps) = self
-                .shared
-                .global
-                .memos
-                .memo(memo_id, |memo| (memo.last_verified, memo.deps.clone()));
+            let (last_verified, deps) = self.shared.global.memos.verification(memo_id);
             if last_verified == current_rev
                 || self.should_cancel() && last_verified > Revision::NEVER_VERIFIED
             {
@@ -291,7 +287,7 @@ where
         };
         let out = (ops.store_output)(&global.storage, &global.handler, out.as_ref());
         let mut commit = PendingCommit::new(current_rev, memo_id);
-        if global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
+        if global.memos.value_id(memo_id) != Some(out) {
             commit.new_value_id = Some(out);
         }
         query_update.commit = Some(commit);
@@ -307,10 +303,7 @@ where
         H: event::Handler,
     {
         self.verify_memo(current_rev, dep);
-        self.shared
-            .global
-            .memos
-            .memo(dep, |memo| memo.last_changed > memo_last_verified)
+        self.shared.global.memos.last_changed(dep) > memo_last_verified
     }
 
     fn install_query(&self) -> QueryUpdate<'_, S, H>
@@ -337,10 +330,10 @@ where
         Q: Query,
     {
         let global = &self.shared.global;
-        let value_id = global.memos.memo(memo_id, |memo| {
-            memo.value_id
-                .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
-        });
+        let value_id = global
+            .memos
+            .value_id(memo_id)
+            .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
         Handle::downcast::<Q::Out>(global.storage.get(value_id))
     }
 
