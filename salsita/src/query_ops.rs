@@ -11,6 +11,7 @@ use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::RwLock;
 
 #[derive(Debug)]
@@ -47,14 +48,18 @@ where
     {
         let Self(registry) = self;
         let query_id = QueryId(TypeId::of::<Q>());
-        registry
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .entry(query_id)
-            .or_insert_with(|| {
-                handler.event(Event::new(EventKind::RegisterQueryOps));
-                QueryOps::new::<Q>()
-            });
+        let did_insert = match registry.write().expect(INCONSISTENT_STATE).entry(query_id) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(QueryOps::new::<Q>());
+                true
+            }
+        };
+        // Database insertion must be finished before the handler is
+        // notified as the handler may panic.
+        if did_insert {
+            handler.event(Event::new(EventKind::RegisterQueryOps));
+        }
         query_id
     }
 
