@@ -141,7 +141,7 @@ where
 
         let memo_id = self.inputs.memo_id(input_id);
         let new_value_id = global.storage.store(&global.handler, value);
-        if new_value_id != memo_id.args_id {
+        if global.memos.value_id(memo_id) != Some(new_value_id) {
             let current_rev = global.rev.bump();
             global.memos.set_input(memo_id, current_rev, new_value_id);
         }
