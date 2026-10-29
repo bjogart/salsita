@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use crate::barrier::ExclusiveBarrier;
 use crate::event::Event;
 use crate::event::ScopedEvent;
 use crate::event::ScopedEventKind;
@@ -11,13 +10,13 @@ use crate::query::InputId;
 use crate::query::InputRegistry;
 use crate::query::Query;
 use crate::query_ops::QueryOpsRegistry;
+use crate::shared::Shared;
 use crate::storage::DefaultStorage;
 use crate::storage::Handle;
 use crate::storage::Storage;
 use crate::storage::Transfer as _;
 use crate::update::PendingCommit;
 use crate::update::QueryUpdate;
-use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
 use core::mem;
@@ -26,19 +25,17 @@ use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::collections::HashSet;
 
-mod barrier;
 pub mod event;
 pub(crate) mod memo;
 pub mod query;
 mod query_ops;
+mod shared;
 pub mod storage;
 #[cfg(test)]
 mod tests;
 mod update;
 
 pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
-const GLOBAL_NOT_EXCLUSIVE: &str =
-    "bug: `self.shared.global` should be uniquely owned at this point";
 const QUERY_NOT_REGISTERED: &str = "bug: query not registered";
 
 #[derive(Debug)]
@@ -46,19 +43,8 @@ pub struct Db<S = DefaultStorage, H = ()>
 where
     S: Storage,
 {
-    shared: SharedState<S, H>,
+    runtime: Shared<Runtime<S, H>>,
     inputs: InputRegistry<S>,
-}
-
-#[derive(Debug)]
-struct SharedState<S, H>
-where
-    S: Storage,
-{
-    global: Arc<GlobalState<S, H>>,
-    /// This field must drop after `global` to prevent deadlocks; see
-    /// [`ExclusiveBarrier`] for information.
-    barrier: ExclusiveBarrier,
 }
 
 #[derive(Debug)]
@@ -66,12 +52,12 @@ pub struct Snapshot<S = DefaultStorage, H = ()>
 where
     S: Storage,
 {
-    shared: SharedState<S, H>,
+    runtime: Shared<Runtime<S, H>>,
     active_queries: RefCell<ActiveQueryStack<S>>,
 }
 
 #[derive(Debug)]
-struct GlobalState<S, H>
+struct Runtime<S, H>
 where
     S: Storage,
 {
@@ -108,7 +94,7 @@ where
 {
     #[must_use]
     pub fn event_handler(&self) -> &H {
-        &self.shared.global.handler
+        &self.runtime.handler
     }
 
     pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
@@ -116,15 +102,18 @@ where
         H: event::Handler,
         I: Input,
     {
-        let global = &self.shared.global;
-        let rev = global.rev.get();
-        let query_id = global.query_ops.query_id::<I>(&global.handler);
-        let value_id = global.storage.store(&global.handler, value);
+        let rev = self.runtime.rev.get();
+        let query_id = self.runtime.query_ops.query_id::<I>(&self.runtime.handler);
+        let value_id = self.runtime.storage.store(&self.runtime.handler, value);
         self.inputs.new_input(|input_id| {
-            let dummy_args_id = global.storage.store(&global.handler, &input_id);
-            global
-                .memos
-                .new_input(&global.handler, rev, query_id, dummy_args_id, value_id)
+            let dummy_args_id = self.runtime.storage.store(&self.runtime.handler, &input_id);
+            self.runtime.memos.new_input(
+                &self.runtime.handler,
+                rev,
+                query_id,
+                dummy_args_id,
+                value_id,
+            )
         })
     }
 
@@ -133,34 +122,28 @@ where
         H: event::Handler,
         I: Input,
     {
-        let SharedState { global, barrier } = &mut self.shared;
-        global.should_cancel.store(true, Ordering::Release);
-        barrier.wait_for_exclusive_access(global);
-        let global = Arc::get_mut(global).expect(GLOBAL_NOT_EXCLUSIVE);
-        global.should_cancel.store(false, Ordering::Release);
+        self.runtime.should_cancel.store(true, Ordering::Release);
+        let runtime = self.runtime.wait_exclusive();
+        runtime.should_cancel.store(false, Ordering::Release);
 
         let memo_id = self.inputs.memo_id(input_id);
-        let new_value_id = global.storage.store(&global.handler, value);
-        if global.memos.value_id(memo_id) != Some(new_value_id) {
-            let current_rev = global.rev.bump();
-            global.memos.set_input(memo_id, current_rev, new_value_id);
+        let new_value_id = runtime.storage.store(&runtime.handler, value);
+        if runtime.memos.value_id(memo_id) != Some(new_value_id) {
+            let current_rev = runtime.rev.bump();
+            runtime.memos.set_input(memo_id, current_rev, new_value_id);
         }
     }
 
     #[must_use]
     pub fn snapshot(&self) -> Snapshot<S, H> {
-        Snapshot::new(self.shared.clone())
+        Snapshot::new(self.runtime.clone())
     }
 
     pub fn gc(&mut self)
     where
         H: event::Handler,
     {
-        let SharedState { global, barrier } = &mut self.shared;
-        barrier.wait_for_exclusive_access(global);
-        Arc::get_mut(global)
-            .expect(GLOBAL_NOT_EXCLUSIVE)
-            .gc(&mut self.inputs);
+        self.runtime.wait_exclusive().gc(&mut self.inputs);
     }
 }
 
@@ -171,33 +154,8 @@ where
 {
     fn default() -> Self {
         Self {
-            shared: SharedState::default(),
+            runtime: Shared::default(),
             inputs: InputRegistry::default(),
-        }
-    }
-}
-
-impl<S, H> Clone for SharedState<S, H>
-where
-    S: Storage,
-{
-    fn clone(&self) -> Self {
-        Self {
-            global: Arc::clone(&self.global),
-            barrier: self.barrier.clone(),
-        }
-    }
-}
-
-impl<S, H> Default for SharedState<S, H>
-where
-    S: Storage,
-    H: Default,
-{
-    fn default() -> Self {
-        Self {
-            global: Arc::default(),
-            barrier: ExclusiveBarrier::default(),
         }
     }
 }
@@ -206,21 +164,21 @@ impl<S, H> Snapshot<S, H>
 where
     S: Storage,
 {
-    fn new(shared: SharedState<S, H>) -> Self {
+    fn new(runtime: Shared<Runtime<S, H>>) -> Self {
         Self {
-            shared,
+            runtime,
             active_queries: RefCell::default(),
         }
     }
 
     #[must_use]
     pub fn event_handler(&self) -> &H {
-        &self.shared.global.handler
+        &self.runtime.handler
     }
 
     #[must_use]
     pub fn snapshot(&self) -> Self {
-        Self::new(self.shared.clone())
+        Self::new(self.runtime.clone())
     }
 
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
@@ -228,14 +186,17 @@ where
         H: event::Handler,
         Q: Query,
     {
-        let global = &self.shared.global;
-        let _query_guard = &global
+        let _query_guard = &self
+            .runtime
             .handler
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
-        let query_id = global.query_ops.query_id::<Q>(&global.handler);
-        let args_id = global.storage.store(&global.handler, args);
-        let memo_id = global.memos.memo_id(&global.handler, query_id, args_id);
-        self.verify_memo(global.rev.get(), memo_id);
+        let query_id = self.runtime.query_ops.query_id::<Q>(&self.runtime.handler);
+        let args_id = self.runtime.storage.store(&self.runtime.handler, args);
+        let memo_id = self
+            .runtime
+            .memos
+            .memo_id(&self.runtime.handler, query_id, args_id);
+        self.verify_memo(self.runtime.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
 
@@ -245,7 +206,7 @@ where
     {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
-            let (last_verified, deps) = self.shared.global.memos.verification(memo_id);
+            let (last_verified, deps) = self.runtime.memos.verification(memo_id);
             if last_verified == current_rev
                 || self.should_cancel() && last_verified > Revision::NEVER_VERIFIED
             {
@@ -257,7 +218,7 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
-            self.shared.global.memos.mark_verified(memo_id, current_rev);
+            self.runtime.memos.mark_verified(memo_id, current_rev);
             return;
         }
         self.eval_memo(current_rev, memo_id);
@@ -267,22 +228,23 @@ where
     where
         H: event::Handler,
     {
-        let global = &self.shared.global;
-        let ops = global
+        let ops = self
+            .runtime
             .query_ops
             .get(memo_id.query_id)
             .expect(QUERY_NOT_REGISTERED);
-        let args = global.storage.get(memo_id.args_id);
+        let args = self.runtime.storage.get(memo_id.args_id);
         let mut query_update = self.install_query();
         let out = {
-            let _eval_guard = &global
+            let _eval_guard = &self
+                .runtime
                 .handler
                 .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             (ops.eval)(self, args)
         };
-        let out = (ops.store_output)(&global.storage, &global.handler, out.as_ref());
+        let out = (ops.store_output)(&self.runtime.storage, &self.runtime.handler, out.as_ref());
         let mut commit = PendingCommit::new(current_rev, memo_id);
-        if global.memos.value_id(memo_id) != Some(out) {
+        if self.runtime.memos.value_id(memo_id) != Some(out) {
             commit.new_value_id = Some(out);
         }
         query_update.commit = Some(commit);
@@ -298,7 +260,7 @@ where
         H: event::Handler,
     {
         self.verify_memo(current_rev, dep);
-        self.shared.global.memos.last_changed(dep) > memo_last_verified
+        self.runtime.memos.last_changed(dep) > memo_last_verified
     }
 
     fn install_query(&self) -> QueryUpdate<'_, S, H>
@@ -324,21 +286,21 @@ where
     where
         Q: Query,
     {
-        let global = &self.shared.global;
-        let value_id = global
+        let value_id = self
+            .runtime
             .memos
             .value_id(memo_id)
             .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
-        Handle::downcast::<Q::Out>(global.storage.get(value_id))
+        Handle::downcast::<Q::Out>(self.runtime.storage.get(value_id))
     }
 
     #[must_use]
     pub(crate) fn should_cancel(&self) -> bool {
-        self.shared.global.should_cancel.load(Ordering::Relaxed)
+        self.runtime.should_cancel.load(Ordering::Relaxed)
     }
 }
 
-impl<S, H> GlobalState<S, H>
+impl<S, H> Runtime<S, H>
 where
     S: Storage,
 {
@@ -383,7 +345,7 @@ where
     }
 }
 
-impl<S, H> Default for GlobalState<S, H>
+impl<S, H> Default for Runtime<S, H>
 where
     S: Storage,
     H: Default,

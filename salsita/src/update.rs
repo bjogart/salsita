@@ -47,7 +47,7 @@ where
             active_queries.pop()
         };
         if let (Some(commit), Some(ActiveQuery { deps })) = (commit.take(), active_query) {
-            commit.apply(&snapshot.shared.global.memos, deps);
+            commit.apply(&snapshot.runtime.memos, deps);
         }
     }
 }
