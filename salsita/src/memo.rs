@@ -46,10 +46,10 @@ pub(crate) struct MemoEntry<S>
 where
     S: Storage,
 {
-    pub(crate) deps: Vec<MemoId<S>>,
-    pub(crate) last_verified: Revision,
-    pub(crate) last_changed: Revision,
-    pub(crate) value_id: Option<S::Id>,
+    deps: Vec<MemoId<S>>,
+    last_verified: Revision,
+    last_changed: Revision,
+    value_id: Option<S::Id>,
 }
 
 impl<S> Memos<S>
@@ -131,15 +131,47 @@ where
         (memo.last_verified, memo.deps.clone())
     }
 
-    pub(crate) fn memo_mut(&self, id: MemoId<S>, f: impl FnOnce(&mut MemoEntry<S>)) {
-        f(&mut self
-            .0
-            .read()
-            .expect(INCONSISTENT_STATE)
+    pub(crate) fn mark_verified(&self, id: MemoId<S>, rev: Revision) {
+        let memos = self.0.read().expect(INCONSISTENT_STATE);
+        let mut memo = memos
             .get(&id)
             .expect(UNKNOWN_ID)
             .write()
-            .expect(INCONSISTENT_STATE))
+            .expect(INCONSISTENT_STATE);
+        memo.last_verified = rev;
+    }
+
+    pub(crate) fn commit_eval(
+        &self,
+        id: MemoId<S>,
+        rev: Revision,
+        deps: Vec<MemoId<S>>,
+        new_value_id: Option<S::Id>,
+    ) {
+        let memos = self.0.read().expect(INCONSISTENT_STATE);
+        let mut memo = memos
+            .get(&id)
+            .expect(UNKNOWN_ID)
+            .write()
+            .expect(INCONSISTENT_STATE);
+        memo.last_verified = rev;
+        memo.deps = deps;
+        if let Some(value_id) = new_value_id {
+            memo.value_id = Some(value_id);
+            memo.last_changed = rev;
+        }
+    }
+
+    pub(crate) fn set_input(&mut self, id: MemoId<S>, rev: Revision, value_id: S::Id) {
+        let memos = self.0.get_mut().expect(INCONSISTENT_STATE);
+        let memo = memos
+            .get_mut(&id)
+            .expect(UNKNOWN_ID)
+            .get_mut()
+            .expect(INCONSISTENT_STATE);
+        memo.last_verified = rev;
+        memo.last_changed = rev;
+        memo.value_id = Some(value_id);
     }
 
     pub(crate) fn len(&self) -> usize {

@@ -20,7 +20,6 @@ where
 {
     current_rev: Revision,
     memo_id: MemoId<S>,
-    deps: Option<Vec<MemoId<S>>>,
     pub(crate) new_value_id: Option<S::Id>,
 }
 
@@ -42,14 +41,13 @@ where
 {
     fn drop(&mut self) {
         let Self { snapshot, commit } = self;
-        let deps = {
+        let active_query = {
             let mut active_queries = snapshot.active_queries.borrow_mut();
             let ActiveQueryStack(active_queries) = &mut *active_queries;
-            active_queries.pop().map(|ActiveQuery { deps }| deps)
+            active_queries.pop()
         };
-        if let Some(mut commit) = commit.take() {
-            commit.deps = deps;
-            commit.apply(&snapshot.shared.global.memos);
+        if let (Some(commit), Some(ActiveQuery { deps })) = (commit.take(), active_query) {
+            commit.apply(&snapshot.shared.global.memos, deps);
         }
     }
 }
@@ -62,27 +60,16 @@ where
         Self {
             current_rev,
             memo_id,
-            deps: None,
             new_value_id: None,
         }
     }
 
-    pub(crate) fn apply(self, memos: &Memos<S>) {
+    fn apply(self, memos: &Memos<S>, deps: Vec<MemoId<S>>) {
         let Self {
             current_rev,
             memo_id,
-            deps,
             new_value_id,
         } = self;
-        memos.memo_mut(memo_id, |memo| {
-            memo.last_verified = current_rev;
-            if let Some(deps) = deps {
-                memo.deps = deps;
-            }
-            if let Some(value_id) = new_value_id {
-                memo.value_id = Some(value_id);
-                memo.last_changed = current_rev;
-            }
-        });
+        memos.commit_eval(memo_id, current_rev, deps, new_value_id);
     }
 }

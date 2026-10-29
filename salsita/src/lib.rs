@@ -143,9 +143,7 @@ where
         let new_value_id = global.storage.store(&global.handler, value);
         if new_value_id != memo_id.args_id {
             let current_rev = global.rev.bump();
-            let mut commit = PendingCommit::new(current_rev, memo_id);
-            commit.new_value_id = Some(new_value_id);
-            commit.apply(&global.memos);
+            global.memos.set_input(memo_id, current_rev, new_value_id);
         }
     }
 
@@ -259,10 +257,7 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
-            self.shared
-                .global
-                .memos
-                .memo_mut(memo_id, |memo| memo.last_verified = current_rev);
+            self.shared.global.memos.mark_verified(memo_id, current_rev);
             return;
         }
         self.eval_memo(current_rev, memo_id);
