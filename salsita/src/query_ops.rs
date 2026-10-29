@@ -56,7 +56,7 @@ where
             }
         };
         // Database insertion must be finished before the handler is
-        // notified as the handler may panic.
+        // notified as the handler may panic and poison the registry lock.
         if did_insert {
             handler.event(Event::new(EventKind::RegisterQueryOps));
         }
