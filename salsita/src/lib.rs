@@ -36,7 +36,6 @@ mod tests;
 mod update;
 
 pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
-const QUERY_NOT_REGISTERED: &str = "bug: query not registered";
 
 #[derive(Debug)]
 pub struct Db<S = DefaultStorage, H = ()>
@@ -232,7 +231,7 @@ where
             .runtime
             .query_ops
             .get(memo_id.query_id)
-            .expect(QUERY_NOT_REGISTERED);
+            .expect("bug: query not registered");
         let args = self.runtime.storage.get(memo_id.args_id);
         let mut query_update = self.install_query();
         let out = {

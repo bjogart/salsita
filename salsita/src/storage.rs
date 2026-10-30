@@ -14,8 +14,6 @@ use std::hash::RandomState;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
-const UNKNOWN_ID: &str = "bug: unknown storage ID (was this ID created by another database?)";
-
 pub trait Storage: Default + 'static {
     type Id: Clone + Copy + Eq + Hash + Debug + Send + Sync;
     type Handle: Debug + Handle;
@@ -178,7 +176,9 @@ impl DefaultStorageInner {
         values: &[Arc<dyn Any + Send + Sync>],
         id: DefaultStorageId,
     ) -> &Arc<dyn Any + Send + Sync> {
-        values.get(id.idx()).expect(UNKNOWN_ID)
+        values
+            .get(id.idx())
+            .expect("bug: unknown storage ID (was this ID created by another database?)")
     }
 }
 
