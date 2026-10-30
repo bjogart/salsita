@@ -11,15 +11,11 @@ use core::any::Any;
 use core::any::TypeId;
 use core::hash::Hash;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::RwLock;
 
 #[derive(Debug)]
-pub(crate) struct QueryOpsRegistry<S, H>(RwLock<QueryOpsRegistryInner<S, H>>)
-where
-    S: Storage;
-
-#[derive(Debug)]
-struct QueryOpsRegistryInner<S, H>(HashMap<QueryId, QueryOps<S, H>>)
+pub(crate) struct QueryOpsRegistry<S, H>(RwLock<HashMap<QueryId, QueryOps<S, H>>>)
 where
     S: Storage;
 
@@ -50,27 +46,49 @@ where
         H: event::Handler,
         Q: Query,
     {
-        self.0
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .query_id::<Q>(handler)
+        let Self(registry) = self;
+        let query_id = QueryId(TypeId::of::<Q>());
+        let did_insert = match registry.write().expect(INCONSISTENT_STATE).entry(query_id) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(QueryOps::new::<Q>());
+                true
+            }
+        };
+        // Database insertion must be finished before the handler is
+        // notified as the handler may panic.
+        if did_insert {
+            handler.event(Event::new(EventKind::RegisterQueryOps));
+        }
+        query_id
     }
 
     pub(crate) fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>>
     where
         H: event::Handler,
     {
-        self.0.read().expect(INCONSISTENT_STATE).get(query_id)
+        let Self(registry) = self;
+        registry
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .get(&query_id)
+            .copied()
     }
 
     pub(crate) fn retain(&mut self, handler: &H, retain: impl Fn(QueryId) -> bool)
     where
         H: event::Handler,
     {
-        self.0
-            .get_mut()
-            .expect(INCONSISTENT_STATE)
-            .retain(handler, retain);
+        let Self(registry) = self;
+        let registry = registry.get_mut().expect(INCONSISTENT_STATE);
+        registry.retain(|query_id, _| {
+            let kept = retain(*query_id);
+            if !kept {
+                handler.event(Event::new(EventKind::DeregisterQueryOps));
+            }
+            kept
+        });
+        registry.shrink_to_fit();
     }
 }
 
@@ -80,51 +98,6 @@ where
 {
     fn default() -> Self {
         Self(RwLock::default())
-    }
-}
-
-impl<S, H> QueryOpsRegistryInner<S, H>
-where
-    S: Storage,
-{
-    fn query_id<Q>(&mut self, handler: &H) -> QueryId
-    where
-        H: event::Handler,
-        Q: Query,
-    {
-        let query_id = QueryId(TypeId::of::<Q>());
-        self.0.entry(query_id).or_insert_with(|| {
-            handler.event(Event::new(EventKind::RegisterQueryOps));
-            QueryOps::new::<Q>()
-        });
-        query_id
-    }
-
-    fn get(&self, query_id: QueryId) -> Option<QueryOps<S, H>> {
-        self.0.get(&query_id).copied()
-    }
-
-    fn retain(&mut self, handler: &H, keep: impl Fn(QueryId) -> bool)
-    where
-        H: event::Handler,
-    {
-        self.0.retain(|query_id, _| {
-            let kept = keep(*query_id);
-            if !kept {
-                handler.event(Event::new(EventKind::DeregisterQueryOps));
-            }
-            kept
-        });
-        self.0.shrink_to_fit();
-    }
-}
-
-impl<S, H> Default for QueryOpsRegistryInner<S, H>
-where
-    S: Storage,
-{
-    fn default() -> Self {
-        Self(HashMap::default())
     }
 }
 
