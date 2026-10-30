@@ -143,9 +143,7 @@ where
         let new_value_id = global.storage.store(&global.handler, value);
         if new_value_id != memo_id.args_id {
             let current_rev = global.rev.bump();
-            let mut commit = PendingCommit::new(current_rev, memo_id);
-            commit.new_value_id = Some(new_value_id);
-            commit.apply(&global.memos);
+            global.memos.set_input(memo_id, current_rev, new_value_id);
         }
     }
 
@@ -247,11 +245,7 @@ where
     {
         self.track_dep(memo_id);
         let (last_verified, deps) = {
-            let (last_verified, deps) = self
-                .shared
-                .global
-                .memos
-                .memo(memo_id, |memo| (memo.last_verified, memo.deps.clone()));
+            let (last_verified, deps) = self.shared.global.memos.verification(memo_id);
             if last_verified == current_rev
                 || self.should_cancel() && last_verified > Revision::NEVER_VERIFIED
             {
@@ -263,10 +257,7 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
-            self.shared
-                .global
-                .memos
-                .memo_mut(memo_id, |memo| memo.last_verified = current_rev);
+            self.shared.global.memos.mark_verified(memo_id, current_rev);
             return;
         }
         self.eval_memo(current_rev, memo_id);
@@ -291,7 +282,7 @@ where
         };
         let out = (ops.store_output)(&global.storage, &global.handler, out.as_ref());
         let mut commit = PendingCommit::new(current_rev, memo_id);
-        if global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
+        if global.memos.value_id(memo_id) != Some(out) {
             commit.new_value_id = Some(out);
         }
         query_update.commit = Some(commit);
@@ -307,10 +298,7 @@ where
         H: event::Handler,
     {
         self.verify_memo(current_rev, dep);
-        self.shared
-            .global
-            .memos
-            .memo(dep, |memo| memo.last_changed > memo_last_verified)
+        self.shared.global.memos.last_changed(dep) > memo_last_verified
     }
 
     fn install_query(&self) -> QueryUpdate<'_, S, H>
@@ -337,10 +325,10 @@ where
         Q: Query,
     {
         let global = &self.shared.global;
-        let value_id = global.memos.memo(memo_id, |memo| {
-            memo.value_id
-                .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
-        });
+        let value_id = global
+            .memos
+            .value_id(memo_id)
+            .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
         Handle::downcast::<Q::Out>(global.storage.get(value_id))
     }
 
