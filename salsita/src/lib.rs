@@ -21,7 +21,6 @@ use alloc::sync::Arc;
 use core::any::type_name;
 use core::cell::RefCell;
 use core::mem;
-use core::ops::Deref;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
@@ -38,11 +37,21 @@ mod tests;
 mod update;
 
 pub const INCONSISTENT_STATE: &str = "bug: database in inconsistent state due to panic";
-const GLOBAL_NOT_EXCLUSIVE: &str = "bug: `self.global` should be uniquely owned at this point";
+const GLOBAL_NOT_EXCLUSIVE: &str =
+    "bug: `self.shared.global` should be uniquely owned at this point";
 const QUERY_NOT_REGISTERED: &str = "bug: query not registered";
 
 #[derive(Debug)]
 pub struct Db<S = DefaultStorage, H = ()>
+where
+    S: Storage,
+{
+    shared: SharedState<S, H>,
+    inputs: InputRegistry<S>,
+}
+
+#[derive(Debug)]
+struct SharedState<S, H>
 where
     S: Storage,
 {
@@ -57,7 +66,7 @@ pub struct Snapshot<S = DefaultStorage, H = ()>
 where
     S: Storage,
 {
-    db: Db<S, H>,
+    shared: SharedState<S, H>,
     active_queries: RefCell<ActiveQueryStack<S>>,
 }
 
@@ -68,7 +77,6 @@ where
 {
     rev: GlobalRevision,
     should_cancel: AtomicBool,
-    inputs: InputRegistry<S>,
     storage: S,
     memos: Memos<S>,
     query_ops: QueryOpsRegistry<S, H>,
@@ -100,7 +108,7 @@ where
 {
     #[must_use]
     pub fn event_handler(&self) -> &H {
-        &self.global.handler
+        &self.shared.global.handler
     }
 
     pub fn new_input<I>(&mut self, value: &I::Value) -> InputId<I>
@@ -108,18 +116,15 @@ where
         H: event::Handler,
         I: Input,
     {
-        let rev = self.global.rev.get();
-        let query_id = self.global.query_ops.query_id::<I>(&self.global.handler);
-        let value_id = self.global.storage.store(&self.global.handler, value);
-        self.global.inputs.new_input(|input_id| {
-            let dummy_args_id = self.global.storage.store(&self.global.handler, &input_id);
-            self.global.memos.new_input(
-                &self.global.handler,
-                rev,
-                query_id,
-                dummy_args_id,
-                value_id,
-            )
+        let global = &self.shared.global;
+        let rev = global.rev.get();
+        let query_id = global.query_ops.query_id::<I>(&global.handler);
+        let value_id = global.storage.store(&global.handler, value);
+        self.inputs.new_input(|input_id| {
+            let dummy_args_id = global.storage.store(&global.handler, &input_id);
+            global
+                .memos
+                .new_input(&global.handler, rev, query_id, dummy_args_id, value_id)
         })
     }
 
@@ -128,12 +133,13 @@ where
         H: event::Handler,
         I: Input,
     {
-        self.global.should_cancel.store(true, Ordering::Release);
-        self.barrier.wait_for_exclusive_access(&mut self.global);
-        let global = Arc::get_mut(&mut self.global).expect(GLOBAL_NOT_EXCLUSIVE);
+        let SharedState { global, barrier } = &mut self.shared;
+        global.should_cancel.store(true, Ordering::Release);
+        barrier.wait_for_exclusive_access(global);
+        let global = Arc::get_mut(global).expect(GLOBAL_NOT_EXCLUSIVE);
         global.should_cancel.store(false, Ordering::Release);
 
-        let memo_id = global.inputs.memo_id(input_id);
+        let memo_id = self.inputs.memo_id(input_id);
         let new_value_id = global.storage.store(&global.handler, value);
         if new_value_id != memo_id.args_id {
             let current_rev = global.rev.bump();
@@ -145,32 +151,47 @@ where
 
     #[must_use]
     pub fn snapshot(&self) -> Snapshot<S, H> {
-        Snapshot {
-            db: Self {
-                global: Arc::clone(&self.global),
-                barrier: self.barrier.clone(),
-            },
-            active_queries: RefCell::default(),
-        }
+        Snapshot::new(self.shared.clone())
     }
 
     pub fn gc(&mut self)
     where
         H: event::Handler,
     {
-        self.barrier.wait_for_exclusive_access(&mut self.global);
-        Arc::get_mut(&mut self.global)
+        let SharedState { global, barrier } = &mut self.shared;
+        barrier.wait_for_exclusive_access(global);
+        Arc::get_mut(global)
             .expect(GLOBAL_NOT_EXCLUSIVE)
-            .gc();
-    }
-
-    #[must_use]
-    pub(crate) fn should_cancel(&self) -> bool {
-        self.global.should_cancel.load(Ordering::Relaxed)
+            .gc(&mut self.inputs);
     }
 }
 
 impl<S, H> Default for Db<S, H>
+where
+    S: Storage,
+    H: Default,
+{
+    fn default() -> Self {
+        Self {
+            shared: SharedState::default(),
+            inputs: InputRegistry::default(),
+        }
+    }
+}
+
+impl<S, H> Clone for SharedState<S, H>
+where
+    S: Storage,
+{
+    fn clone(&self) -> Self {
+        Self {
+            global: Arc::clone(&self.global),
+            barrier: self.barrier.clone(),
+        }
+    }
+}
+
+impl<S, H> Default for SharedState<S, H>
 where
     S: Storage,
     H: Default,
@@ -187,22 +208,36 @@ impl<S, H> Snapshot<S, H>
 where
     S: Storage,
 {
+    fn new(shared: SharedState<S, H>) -> Self {
+        Self {
+            shared,
+            active_queries: RefCell::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn event_handler(&self) -> &H {
+        &self.shared.global.handler
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> Self {
+        Self::new(self.shared.clone())
+    }
+
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
         H: event::Handler,
         Q: Query,
     {
-        let _query_guard = &self
-            .global
+        let global = &self.shared.global;
+        let _query_guard = &global
             .handler
             .scoped_event(ScopedEvent::new(ScopedEventKind::Query));
-        let query_id = self.global.query_ops.query_id::<Q>(&self.global.handler);
-        let args_id = self.global.storage.store(&self.global.handler, args);
-        let memo_id = self
-            .global
-            .memos
-            .memo_id(&self.global.handler, query_id, args_id);
-        self.verify_memo(self.global.rev.get(), memo_id);
+        let query_id = global.query_ops.query_id::<Q>(&global.handler);
+        let args_id = global.storage.store(&global.handler, args);
+        let memo_id = global.memos.memo_id(&global.handler, query_id, args_id);
+        self.verify_memo(global.rev.get(), memo_id);
         self.memoized_value::<Q>(memo_id)
     }
 
@@ -213,6 +248,7 @@ where
         self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self
+                .shared
                 .global
                 .memos
                 .memo(memo_id, |memo| (memo.last_verified, memo.deps.clone()));
@@ -227,7 +263,8 @@ where
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
-            self.global
+            self.shared
+                .global
                 .memos
                 .memo_mut(memo_id, |memo| memo.last_verified = current_rev);
             return;
@@ -239,23 +276,22 @@ where
     where
         H: event::Handler,
     {
-        let ops = self
-            .global
+        let global = &self.shared.global;
+        let ops = global
             .query_ops
             .get(memo_id.query_id)
             .expect(QUERY_NOT_REGISTERED);
-        let args = self.global.storage.get(memo_id.args_id);
+        let args = global.storage.get(memo_id.args_id);
         let mut query_update = self.install_query();
         let out = {
-            let _eval_guard = &self
-                .global
+            let _eval_guard = &global
                 .handler
                 .scoped_event(ScopedEvent::new(ScopedEventKind::Eval));
             (ops.eval)(self, args)
         };
-        let out = (ops.store_output)(&self.global.storage, &self.global.handler, out.as_ref());
+        let out = (ops.store_output)(&global.storage, &global.handler, out.as_ref());
         let mut commit = PendingCommit::new(current_rev, memo_id);
-        if self.global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
+        if global.memos.memo(memo_id, |memo| memo.value_id) != Some(out) {
             commit.new_value_id = Some(out);
         }
         query_update.commit = Some(commit);
@@ -271,7 +307,8 @@ where
         H: event::Handler,
     {
         self.verify_memo(current_rev, dep);
-        self.global
+        self.shared
+            .global
             .memos
             .memo(dep, |memo| memo.last_changed > memo_last_verified)
     }
@@ -299,22 +336,17 @@ where
     where
         Q: Query,
     {
-        let value_id = self.global.memos.memo(memo_id, |memo| {
+        let global = &self.shared.global;
+        let value_id = global.memos.memo(memo_id, |memo| {
             memo.value_id
                 .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
         });
-        Handle::downcast::<Q::Out>(self.global.storage.get(value_id))
+        Handle::downcast::<Q::Out>(global.storage.get(value_id))
     }
-}
 
-impl<S, H> Deref for Snapshot<S, H>
-where
-    S: Storage,
-{
-    type Target = Db<S, H>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.db
+    #[must_use]
+    pub(crate) fn should_cancel(&self) -> bool {
+        self.shared.global.should_cancel.load(Ordering::Relaxed)
     }
 }
 
@@ -322,12 +354,11 @@ impl<S, H> GlobalState<S, H>
 where
     S: Storage,
 {
-    fn gc(&mut self)
+    fn gc(&mut self, inputs: &mut InputRegistry<S>)
     where
         H: event::Handler,
     {
         let Self {
-            inputs,
             storage,
             memos,
             query_ops,
@@ -373,7 +404,6 @@ where
         Self {
             rev: GlobalRevision::default(),
             should_cancel: AtomicBool::default(),
-            inputs: InputRegistry::default(),
             storage: S::default(),
             memos: Memos::default(),
             query_ops: QueryOpsRegistry::default(),
