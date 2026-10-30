@@ -142,7 +142,11 @@ impl Transfer for DefaultTransfer<'_> {
     where
         H: event::Handler,
     {
-        let freed_values = self.curr.values.len() - self.next.values.len();
+        let freed_values = self
+            .curr
+            .values
+            .len()
+            .saturating_sub(self.next.values.len());
         handler.event(Event::new(EventKind::FreeValues(freed_values)));
         DefaultStorage {
             hasher: self.hasher,

@@ -338,7 +338,7 @@ where
         };
 
         handler.event(Event::new(event::EventKind::DeregisterMemos(
-            prev_memos.len() - memos.len(),
+            prev_memos.len().saturating_sub(memos.len()),
         )));
         query_ops.retain(handler, |query_id| input_queries.contains(&query_id));
     }
@@ -383,7 +383,7 @@ where
 
 impl GlobalRevision {
     fn bump(&self) -> Revision {
-        Revision(self.0.fetch_add(1, Ordering::AcqRel) + 1)
+        Revision(self.0.fetch_add(1, Ordering::AcqRel).strict_add(1))
     }
 
     fn get(&self) -> Revision {
