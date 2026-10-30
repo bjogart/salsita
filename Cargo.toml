@@ -9,6 +9,7 @@ edition = "2024"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.104", default-features = false }
+hashbrown = { version = "0.17.1", default-features = false }
 salsita = { path = "salsita", default-features = false }
 serde = { version = "1.0.229", default-features = false, features = [
   "derive",
@@ -107,6 +108,7 @@ redundant_pattern_matching = "allow"
 semicolon_if_nothing_returned = "allow"
 semicolon_inside_block = "allow"
 shadow_reuse = "allow"
+shadow_same = "allow"
 single_call_fn = "allow"
 unneeded_field_pattern = "allow"
 

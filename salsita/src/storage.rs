@@ -5,11 +5,13 @@ use crate::event::EventKind;
 use crate::panic_expected_different_type;
 use alloc::sync::Arc;
 use core::any::Any;
+use core::any::TypeId;
 use core::fmt::Debug;
 use core::hash::BuildHasher as _;
 use core::hash::Hash;
+use core::hash::Hasher as _;
 use core::ops::Deref;
-use std::collections::HashMap;
+use hashbrown::HashTable;
 use std::hash::RandomState;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
@@ -52,26 +54,23 @@ pub trait Handle {
 }
 
 #[derive(Debug, Default)]
-pub struct DefaultStorage(RwLock<DefaultStorageInner>);
+pub struct DefaultStorage {
+    hasher: RandomState,
+    inner: RwLock<DefaultStorageInner>,
+}
 
 #[derive(Debug)]
 pub struct DefaultTransfer<'storage> {
     curr: RwLockReadGuard<'storage, DefaultStorageInner>,
+    hasher: RandomState,
     next: DefaultStorageInner,
 }
 
 #[derive(Debug, Default)]
 struct DefaultStorageInner {
-    fingerprint_hasher: FingerprintHasher,
-    index: HashMap<Fingerprint, Bucket>,
-    values: Vec<Arc<dyn Any + Send + Sync>>,
+    index: HashTable<(u64, DefaultStorageId)>,
+    values: Vec<Arc<dyn Any + Send + Sync + 'static>>,
 }
-
-type Fingerprint = u64;
-
-type FingerprintHasher = RandomState;
-
-type Bucket = Vec<DefaultStorageId>;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DefaultStorageId(usize);
@@ -79,7 +78,7 @@ pub struct DefaultStorageId(usize);
 impl Storage for DefaultStorage {
     type Id = DefaultStorageId;
 
-    type Handle = Arc<dyn Any + Send + Sync>;
+    type Handle = Arc<dyn Any + Send + Sync + 'static>;
 
     type Transfer<'storage> = DefaultTransfer<'storage>;
 
@@ -88,97 +87,39 @@ impl Storage for DefaultStorage {
         H: event::Handler,
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
-        let mut inner = self.0.write().expect(INCONSISTENT_STATE);
-        inner.store(handler, value)
+        let Self { inner, hasher } = self;
+        // Check if the value exists in storage before attempting to insert it.
+        let hash = hash_value::<T>(hasher, value);
+        if let Some(id) = inner
+            .read()
+            .expect(INCONSISTENT_STATE)
+            .storage_id(hash, value)
+        {
+            return id;
+        }
+        // Clone before taking a write lock in case `T::clone` panics.
+        let owned_value: Arc<dyn Any + Send + Sync + 'static> = Arc::new(value.clone());
+        let id = inner
+            .write()
+            .expect(INCONSISTENT_STATE)
+            .store_value(hash, owned_value);
+        // User-defined handler implementations may panic, so emit the event
+        // after the write lock is dropped.
+        handler.event(Event::new(EventKind::StoreValue));
+        id
     }
 
     fn get(&self, id: Self::Id) -> Self::Handle {
-        self.0.read().expect(INCONSISTENT_STATE).get(id)
+        let Self { inner, hasher: _ } = self;
+        Arc::clone(inner.read().expect(INCONSISTENT_STATE).handle(id))
     }
 
     fn transfer(&self) -> Self::Transfer<'_> {
         DefaultTransfer {
-            curr: self.0.read().expect(INCONSISTENT_STATE),
+            curr: self.inner.read().expect(INCONSISTENT_STATE),
+            hasher: self.hasher.clone(),
             next: DefaultStorageInner::default(),
         }
-    }
-}
-
-impl DefaultStorageInner {
-    fn store<H, T>(&mut self, handler: &H, value: &T) -> DefaultStorageId
-    where
-        H: event::Handler,
-        T: Clone + Eq + Hash + Send + Sync + 'static,
-    {
-        self.intern(value, || {
-            handler.event(Event::new(EventKind::StoreValue));
-            Arc::new(value.clone())
-        })
-    }
-
-    fn find_bucket<'index, T>(
-        hash_builder: &FingerprintHasher,
-        index: &'index mut HashMap<Fingerprint, Bucket>,
-        value: &T,
-    ) -> &'index mut Bucket
-    where
-        T: Hash + 'static,
-    {
-        let print = hash_builder.hash_one(value);
-        index.entry(print).or_default()
-    }
-
-    fn find_bucket_entry<T>(
-        bucket: &Bucket,
-        values: &[Arc<dyn Any + Send + Sync>],
-        value: &T,
-    ) -> Option<DefaultStorageId>
-    where
-        T: Eq + 'static,
-    {
-        bucket.iter().find_map(|id| {
-            if let Some(stored) = Self::get_ref(values, *id).downcast_ref::<T>()
-                && value == stored
-            {
-                return Some(*id);
-            }
-            None
-        })
-    }
-
-    fn intern<T>(
-        &mut self,
-        value: &T,
-        make_shared: impl FnOnce() -> Arc<dyn Any + Send + Sync>,
-    ) -> DefaultStorageId
-    where
-        T: Eq + Hash + 'static,
-    {
-        let Self {
-            fingerprint_hasher,
-            index,
-            values,
-        } = self;
-        let bucket = Self::find_bucket(fingerprint_hasher, index, value);
-        Self::find_bucket_entry::<T>(bucket, values, value).unwrap_or_else(|| {
-            let id = DefaultStorageId::new(values.len());
-            values.push(make_shared());
-            bucket.push(id);
-            id
-        })
-    }
-
-    fn get(&self, id: DefaultStorageId) -> Arc<dyn Any + Send + Sync> {
-        Arc::clone(Self::get_ref(&self.values, id))
-    }
-
-    fn get_ref(
-        values: &[Arc<dyn Any + Send + Sync>],
-        id: DefaultStorageId,
-    ) -> &Arc<dyn Any + Send + Sync> {
-        values
-            .get(id.idx())
-            .expect("bug: unknown storage ID (was this ID created by another database?)")
     }
 }
 
@@ -189,11 +130,12 @@ impl Transfer for DefaultTransfer<'_> {
     where
         T: Clone + Eq + Hash + Send + Sync + 'static,
     {
-        let shared = self.curr.get(id);
+        let shared = self.curr.handle(id);
         let Some(value) = shared.downcast_ref::<T>() else {
             panic_expected_different_type::<T>()
         };
-        self.next.intern(value, || Arc::clone(&shared))
+        let hash = hash_value::<T>(&self.hasher, value);
+        self.next.store_value(hash, Arc::clone(shared))
     }
 
     fn into_storage<H>(self, handler: &H) -> Self::Storage
@@ -202,7 +144,72 @@ impl Transfer for DefaultTransfer<'_> {
     {
         let freed_values = self.curr.values.len() - self.next.values.len();
         handler.event(Event::new(EventKind::FreeValues(freed_values)));
-        DefaultStorage(RwLock::new(self.next))
+        DefaultStorage {
+            hasher: self.hasher,
+            inner: RwLock::new(self.next),
+        }
+    }
+}
+
+impl DefaultStorageInner {
+    fn store_value(
+        &mut self,
+        hash: u64,
+        value: Arc<dyn Any + Send + Sync + 'static>,
+    ) -> DefaultStorageId {
+        let id = DefaultStorageId::new(self.values.len());
+        self.values.push(value);
+        self.index.insert_unique(hash, (hash, id), index_entry_hash);
+        id
+    }
+
+    fn storage_id<T>(&self, hash: u64, value: &T) -> Option<DefaultStorageId>
+    where
+        T: Eq + 'static,
+    {
+        self.index
+            .find(hash, |(entry_hash, entry_id)| {
+                hash == *entry_hash && eq_value::<T>(value, &**self.handle(*entry_id))
+            })
+            .map(|(_, id)| *id)
+    }
+
+    fn handle(&self, id: DefaultStorageId) -> &Arc<dyn Any + Send + Sync + 'static> {
+        self.values
+            .get(id.idx())
+            .expect("bug: unknown storage ID (was this ID created by another database?)")
+    }
+}
+
+fn index_entry_hash((hash, _): &(u64, DefaultStorageId)) -> u64 {
+    *hash
+}
+
+fn eq_value<T>(a: &T, b: &dyn Any) -> bool
+where
+    T: PartialEq + 'static,
+{
+    b.downcast_ref() == Some(a)
+}
+
+fn hash_value<T>(build_hasher: &RandomState, v: &T) -> u64
+where
+    T: Hash + 'static,
+{
+    let mut hasher = build_hasher.build_hasher();
+    TypeId::of::<T>().hash(&mut hasher);
+    v.hash(&mut hasher);
+    hasher.finish()
+}
+
+impl Handle for Arc<dyn Any + Send + Sync + 'static> {
+    type TypedHandle<T> = Arc<T>;
+
+    fn downcast<T>(self) -> Self::TypedHandle<T>
+    where
+        T: Send + Sync + 'static,
+    {
+        Arc::downcast(self).unwrap_or_else(|_| panic_expected_different_type::<T>())
     }
 }
 
@@ -213,17 +220,5 @@ impl DefaultStorageId {
 
     const fn idx(self) -> usize {
         self.0
-    }
-}
-
-impl Handle for Arc<dyn Any + Send + Sync> {
-    type TypedHandle<T> = Arc<T>;
-
-    fn downcast<T>(self) -> Self::TypedHandle<T>
-    where
-        T: Send + Sync + 'static,
-    {
-        self.downcast()
-            .unwrap_or_else(|_| panic_expected_different_type::<T>())
     }
 }

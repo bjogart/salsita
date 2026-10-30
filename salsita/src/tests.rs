@@ -452,6 +452,23 @@ fn panicking_nested_eval_is_retried_by_caller() {
     );
 }
 
+#[test]
+fn panicking_hash_impls_cannot_trigger_during_storage_rehash() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let _count = db.new_input::<FragileCount>(&Fragile(3));
+    // Storing unrelated values never hashes `Fragile` when looking them up, but
+    // growing the storage index rehashes values stored so far.
+    PANIC_ON_HASH.set(true);
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        let snapshot = db.snapshot();
+        for cups in 0..2 {
+            snapshot.query::<SalsaCupGrams>(&cups);
+        }
+    }));
+    PANIC_ON_HASH.set(false);
+    assert!(result.is_ok());
+}
+
 fn init_inputs(
     db: &mut Db<DefaultStorage, PerfHandler>,
 ) -> (
