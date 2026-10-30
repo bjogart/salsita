@@ -11,6 +11,7 @@ use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::sync::RwLock;
 use std::sync::RwLockReadGuard;
 
@@ -87,14 +88,18 @@ where
         H: event::Handler,
     {
         let memo_id = MemoId { query_id, args_id };
-        self.0
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .entry(memo_id)
-            .or_insert_with(|| {
-                handler.event(Event::new(EventKind::RegisterMemo));
-                RwLock::new(MemoEntry::new())
-            });
+        let did_insert = match self.0.write().expect(INCONSISTENT_STATE).entry(memo_id) {
+            Entry::Occupied(_) => false,
+            Entry::Vacant(entry) => {
+                entry.insert(RwLock::new(MemoEntry::new()));
+                true
+            }
+        };
+        // Database insertion must be finished before the handler is notified as
+        // the handler may panic and poison the memo map lock.
+        if did_insert {
+            handler.event(Event::new(EventKind::RegisterMemo));
+        }
         memo_id
     }
 
@@ -138,6 +143,8 @@ where
             .expect(UNKNOWN_ID)
             .write()
             .expect(INCONSISTENT_STATE);
+        // As a write lock is held on the memo entry, code after this comment
+        // _must not_ panic to prevent lock poison.
         memo.last_verified = rev;
     }
 
@@ -154,6 +161,8 @@ where
             .expect(UNKNOWN_ID)
             .write()
             .expect(INCONSISTENT_STATE);
+        // As a write lock is held on the memo entry, code after this comment
+        // _must not_ panic to prevent lock poison.
         memo.last_verified = rev;
         memo.deps = deps;
         if let Some(value_id) = new_value_id {
