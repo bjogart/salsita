@@ -1,4 +1,3 @@
-use crate::INCONSISTENT_STATE;
 use crate::Snapshot;
 use crate::event;
 use crate::memo::MemoId;
@@ -10,7 +9,6 @@ use core::fmt::Formatter;
 use core::hash::Hash;
 use core::hash::Hasher;
 use core::marker::PhantomData;
-use std::sync::RwLock;
 
 pub trait Query: Send + Sync + 'static {
     type Args: Clone + Eq + Hash + Send + Sync + 'static;
@@ -27,7 +25,7 @@ pub trait Input: Send + Sync + 'static {
 }
 
 #[derive(Debug)]
-pub(crate) struct InputRegistry<S>(RwLock<Vec<InputEntry<S>>>)
+pub(crate) struct InputRegistry<S>(Vec<InputEntry<S>>)
 where
     S: Storage;
 
@@ -74,11 +72,11 @@ impl<S> InputRegistry<S>
 where
     S: Storage,
 {
-    pub(crate) fn new_input<I>(&self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I>
+    pub(crate) fn new_input<I>(&mut self, f: impl FnOnce(InputId<I>) -> MemoId<S>) -> InputId<I>
     where
         I: Input,
     {
-        let mut inputs = self.0.write().expect(INCONSISTENT_STATE);
+        let Self(inputs) = self;
         let input_id = InputId(inputs.len(), PhantomData);
         let memo_id = f(input_id);
         inputs.push(InputEntry {
@@ -105,15 +103,13 @@ where
     pub(crate) fn memo_id<I>(&self, input_id: InputId<I>) -> MemoId<S> {
         let InputId(idx, _) = input_id;
         self.0
-            .read()
-            .expect(INCONSISTENT_STATE)
             .get(idx)
             .expect("bug: unknown input ID (was this ID created by another database?)")
             .memo_id
     }
 
     pub(crate) fn len(&self) -> usize {
-        self.0.read().expect(INCONSISTENT_STATE).len()
+        self.0.len()
     }
 
     pub(crate) fn transfer(
@@ -122,15 +118,13 @@ where
     ) -> Self {
         let next = self
             .0
-            .read()
-            .expect(INCONSISTENT_STATE)
             .iter()
             .map(|entry| InputEntry {
                 memo_id: transfer(InputTransfer(entry)),
                 transfer: entry.transfer,
             })
             .collect();
-        Self(RwLock::new(next))
+        Self(next)
     }
 }
 
@@ -165,7 +159,7 @@ where
     S: Storage,
 {
     fn default() -> Self {
-        Self(RwLock::default())
+        Self(Vec::default())
     }
 }
 
