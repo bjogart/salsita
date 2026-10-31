@@ -21,7 +21,6 @@ use core::any::type_name;
 use core::cell::RefCell;
 use core::mem;
 use core::sync::atomic::AtomicBool;
-use core::sync::atomic::AtomicUsize;
 use core::sync::atomic::Ordering;
 use std::collections::HashSet;
 
@@ -69,10 +68,14 @@ where
 }
 
 #[derive(Debug)]
-struct GlobalRevision(AtomicUsize);
+struct GlobalRevision {
+    rev: Revision,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct Revision(usize);
+struct Revision {
+    raw: usize,
+}
 
 #[derive(Debug)]
 struct ActiveQueryStack<S>(Vec<ActiveQuery<S>>)
@@ -393,23 +396,32 @@ where
 }
 
 impl GlobalRevision {
-    fn bump(&self) -> Revision {
-        Revision(self.0.fetch_add(1, Ordering::AcqRel).strict_add(1))
+    fn bump(&mut self) -> Revision {
+        let Self {
+            rev: Revision { raw },
+        } = self;
+        *raw = raw.strict_add(1);
+        self.get()
     }
 
     fn get(&self) -> Revision {
-        Revision(self.0.load(Ordering::Acquire))
+        let Self { rev } = self;
+        *rev
     }
 }
 
 impl Default for GlobalRevision {
     fn default() -> Self {
-        Self(AtomicUsize::new(Revision::NEVER_VERIFIED.0 + 1))
+        Self {
+            rev: Revision {
+                raw: Revision::NEVER_VERIFIED.raw.strict_add(1),
+            },
+        }
     }
 }
 
 impl Revision {
-    const NEVER_VERIFIED: Self = Self(0);
+    const NEVER_VERIFIED: Self = Self { raw: 0 };
 }
 
 pub(crate) fn panic_expected_different_type<T>() -> ! {
