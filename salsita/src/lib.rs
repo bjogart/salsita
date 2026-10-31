@@ -230,7 +230,8 @@ where
         let deps_postdate_memo = deps
             .into_iter()
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
-        if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
+        if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED && !self.should_cancel()
+        {
             self.runtime.memos.mark_verified(memo_id, current_rev);
             return MemoValue::Memoized;
         }

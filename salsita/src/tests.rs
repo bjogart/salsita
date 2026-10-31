@@ -251,6 +251,40 @@ fn cancelled_eval_does_not_memoize_stale_deps() {
 }
 
 #[test]
+fn cancelled_dep_does_not_mark_caller_verified() {
+    let mut db: Db = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let count = db.new_input::<BurritoCount>(&1);
+    // Verify `StallingTotalPrice` once, then change its input so that it
+    // becomes stale.
+    assert_eq!(
+        *db.snapshot().query::<StallingTotalPrice>(&(price, count)),
+        10
+    );
+    db.set_input(price, &4);
+    let (sender, receiver) = mpsc::channel();
+    let handle = thread::spawn({
+        let snapshot = db.snapshot();
+        move || {
+            // `StallingTotalPrice` is not cancelled when its own memo is
+            // checked, but its dependency is re-evaluated during cancellation.
+            STALL_EVAL_UNTIL_CANCELLED.set(Some(sender));
+            snapshot.query::<StallingTotalPrice>(&(price, count));
+        }
+    });
+    // Wait until the worker is evaluating the dependency.
+    receiver.recv().unwrap();
+    // Setting an equal value triggers cancellation without bumping the
+    // revision.
+    db.set_input(price, &4);
+    handle.join().unwrap();
+    assert_eq!(
+        *db.snapshot().query::<StallingTotalPrice>(&(price, count)),
+        6
+    );
+}
+
+#[test]
 fn garbage_collection_reclaims_unused_ops_and_storage_and_memos() {
     let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
@@ -949,5 +983,44 @@ impl Query for FlakyPriceWithVat {
         H: event::Handler,
     {
         *snapshot.query::<FlakyTotalPrice>(args) + 5
+    }
+}
+
+thread_local! {
+    static STALL_EVAL_UNTIL_CANCELLED: Cell<Option<mpsc::Sender<()>>> = const { Cell::new(None) };
+}
+
+struct StallingPriceWithShipping;
+impl Query for StallingPriceWithShipping {
+    type Args = InputId<BurritoPrice>;
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        if let Some(sender) = STALL_EVAL_UNTIL_CANCELLED.take() {
+            sender.send(()).unwrap();
+            while !snapshot.should_cancel() {
+                thread::yield_now();
+            }
+        }
+        *snapshot.query::<BurritoPrice>(args) + 2
+    }
+}
+
+struct StallingTotalPrice;
+impl Query for StallingTotalPrice {
+    type Args = (InputId<BurritoPrice>, InputId<BurritoCount>);
+    type Out = usize;
+
+    fn eval<S, H>(snapshot: &Snapshot<S, H>, args: &Self::Args) -> Self::Out
+    where
+        S: Storage,
+        H: event::Handler,
+    {
+        let (price, count) = args;
+        *snapshot.query::<StallingPriceWithShipping>(price) * *snapshot.query::<BurritoCount>(count)
     }
 }
