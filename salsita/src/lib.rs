@@ -186,11 +186,6 @@ where
         &self.runtime.handler
     }
 
-    #[must_use]
-    pub fn snapshot(&self) -> Self {
-        Self::new(self.runtime.clone())
-    }
-
     pub fn query<Q>(&self, args: &Q::Args) -> <S::Handle as Handle>::TypedHandle<Q::Out>
     where
         H: event::Handler,
