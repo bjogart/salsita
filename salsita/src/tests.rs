@@ -224,6 +224,33 @@ fn modifications_trigger_query_cancellation() {
 }
 
 #[test]
+fn cancelled_eval_does_not_memoize_stale_deps() {
+    let mut db: Db = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let count = db.new_input::<BurritoCount>(&1);
+    // Verify `BurritoPriceWithShipping` once, then change its input so that it
+    // becomes stale.
+    assert_eq!(*db.snapshot().query::<BurritoPriceWithShipping>(&price), 10);
+    db.set_input(price, &4);
+    let handle = thread::spawn({
+        let snapshot = db.snapshot();
+        move || {
+            while !snapshot.should_cancel() {
+                thread::yield_now();
+            }
+            // `TotalPrice` is new and therefore evaluated, but its stale
+            // dependency returns early due to cancellation.
+            snapshot.query::<TotalPrice>(&(price, count));
+        }
+    });
+    // Setting an equal value triggers cancellation without bumping the
+    // revision.
+    db.set_input(price, &4);
+    handle.join().unwrap();
+    assert_eq!(*db.snapshot().query::<TotalPrice>(&(price, count)), 6);
+}
+
+#[test]
 fn garbage_collection_reclaims_unused_ops_and_storage_and_memos() {
     let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let (price, count, burrito_salsa) = init_inputs(&mut db);
