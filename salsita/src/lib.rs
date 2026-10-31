@@ -87,6 +87,14 @@ where
     deps: Vec<MemoId<S>>,
 }
 
+enum MemoValue<S>
+where
+    S: Storage,
+{
+    Memoized,
+    Uncommitted(S::Id),
+}
+
 impl<S, H> Db<S, H>
 where
     S: Storage,
@@ -195,11 +203,14 @@ where
             .runtime
             .memos
             .memo_id(&self.runtime.handler, query_id, args_id);
-        self.verify_memo(self.runtime.rev.get(), memo_id);
-        self.memoized_value::<Q>(memo_id)
+        let value_id = match self.verify_memo(self.runtime.rev.get(), memo_id) {
+            MemoValue::Memoized => self.memoized_value_id(memo_id),
+            MemoValue::Uncommitted(value_id) => value_id,
+        };
+        Handle::downcast::<Q::Out>(self.runtime.storage.get(value_id))
     }
 
-    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>)
+    fn verify_memo(&self, current_rev: Revision, memo_id: MemoId<S>) -> MemoValue<S>
     where
         H: event::Handler,
     {
@@ -209,7 +220,7 @@ where
             if last_verified == current_rev
                 || self.should_cancel() && last_verified > Revision::NEVER_VERIFIED
             {
-                return;
+                return MemoValue::Memoized;
             }
             (last_verified, deps)
         };
@@ -218,12 +229,12 @@ where
             .any(|dep| self.dep_postdates_rev(current_rev, last_verified, dep));
         if !deps_postdate_memo && last_verified > Revision::NEVER_VERIFIED {
             self.runtime.memos.mark_verified(memo_id, current_rev);
-            return;
+            return MemoValue::Memoized;
         }
-        self.eval_memo(current_rev, memo_id);
+        self.eval_memo(current_rev, memo_id)
     }
 
-    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>)
+    fn eval_memo(&self, current_rev: Revision, memo_id: MemoId<S>) -> MemoValue<S>
     where
         H: event::Handler,
     {
@@ -242,11 +253,16 @@ where
             (ops.eval)(self, args)
         };
         let out = (ops.store_output)(&self.runtime.storage, &self.runtime.handler, out.as_ref());
+        // Do not memoize the result if cancellation is active.
+        if self.should_cancel() {
+            return MemoValue::Uncommitted(out);
+        }
         let mut commit = PendingCommit::new(current_rev, memo_id);
         if self.runtime.memos.value_id(memo_id) != Some(out) {
             commit.new_value_id = Some(out);
         }
         query_update.commit = Some(commit);
+        MemoValue::Memoized
     }
 
     fn dep_postdates_rev(
@@ -281,16 +297,11 @@ where
         }
     }
 
-    fn memoized_value<Q>(&self, memo_id: MemoId<S>) -> <S::Handle as Handle>::TypedHandle<Q::Out>
-    where
-        Q: Query,
-    {
-        let value_id = self
-            .runtime
+    fn memoized_value_id(&self, memo_id: MemoId<S>) -> S::Id {
+        self.runtime
             .memos
             .value_id(memo_id)
-            .expect("bug: memo entry has no stored value (value not yet computed or memoized)");
-        Handle::downcast::<Q::Out>(self.runtime.storage.get(value_id))
+            .expect("bug: memo entry has no stored value (value not yet computed or memoized)")
     }
 
     #[must_use]
