@@ -132,9 +132,9 @@ where
         H: event::Handler,
         I: Input,
     {
-        self.runtime.should_cancel.store(true, Ordering::Release);
+        self.runtime.should_cancel.store(true, Ordering::Relaxed);
         let runtime = self.runtime.wait_exclusive();
-        runtime.should_cancel.store(false, Ordering::Release);
+        *runtime.should_cancel.get_mut() = false;
 
         let memo_id = self.inputs.memo_id(input_id);
         let new_value_id = runtime.storage.store(&runtime.handler, value);
@@ -309,6 +309,8 @@ where
 
     #[must_use]
     pub(crate) fn should_cancel(&self) -> bool {
+        // Cancellation does not end until all snapshots drop, so once a
+        // snapshot sees `true` here, it will keep seeing true.
         self.runtime.should_cancel.load(Ordering::Relaxed)
     }
 }
