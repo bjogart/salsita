@@ -358,6 +358,36 @@ fn unchanged_nested_reevaluation_preserves_caller_deps() {
 }
 
 #[test]
+fn verified_nested_deps_are_not_tracked_by_caller() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    let price = db.new_input::<BurritoPrice>(&8);
+    let pickup = db.new_input::<IsPickup>(&true);
+    let fee = db.new_input::<DeliveryFee>(&0);
+    let args = (price, pickup, fee);
+    assert_eq!(*db.snapshot().query::<DeliveryCost>(&(pickup, fee)), 0);
+    // Bump the revision so that `DeliveredBurritoPrice` verifies the existing
+    // `DeliveryCost` memo, rather than evaluating it.
+    db.set_input(price, &9);
+    assert_eq!(*db.snapshot().query::<DeliveredBurritoPrice>(&args), 9);
+    // `DeliveryCost` re-evaluates to an unchanged value. Since the caller
+    // depends on `IsPickup` only through `DeliveryCost`, it should not
+    // re-evaluate.
+    db.set_input(pickup, &false);
+    assert_query_delta::<DeliveredBurritoPrice>(
+        &db,
+        &args,
+        &9,
+        Counts {
+            query_count: 3,
+            eval_count: 1,
+            registered_query_ops: 0,
+            stored_values: 0,
+            memo_count: 0,
+        },
+    );
+}
+
+#[test]
 fn garbage_collection_handles_derived_queries_without_deps() {
     let mut db: Db = Db::default();
     assert_eq!(*db.snapshot().query::<SalsaCupGrams>(&3), 120);
