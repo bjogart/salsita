@@ -201,6 +201,7 @@ where
             .runtime
             .memos
             .memo_id(&self.runtime.handler, query_id, args_id);
+        self.track_dep(memo_id);
         let value_id = match self.verify_memo(self.runtime.rev.get(), memo_id) {
             MemoValue::Memoized => self.memoized_value_id(memo_id),
             MemoValue::Uncommitted(value_id) => value_id,
@@ -212,7 +213,6 @@ where
     where
         H: event::Handler,
     {
-        self.track_dep(memo_id);
         let (last_verified, deps) = {
             let (last_verified, deps) = self.runtime.memos.verification(memo_id);
             if last_verified == current_rev
