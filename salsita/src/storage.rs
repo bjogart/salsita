@@ -90,19 +90,33 @@ impl Storage for DefaultStorage {
         let Self { inner, hasher } = self;
         // Check if the value exists in storage before attempting to insert it.
         let hash = hash_value::<T>(hasher, value);
-        if let Some(id) = inner
-            .read()
-            .expect(INCONSISTENT_STATE)
-            .storage_id(hash, value)
-        {
-            return id;
-        }
+        let mut read_len = {
+            let inner = inner.read().expect(INCONSISTENT_STATE);
+            if let Some(id) = inner.storage_id(hash, value) {
+                return id;
+            }
+            inner.len()
+        };
         // Clone before taking a write lock in case `T::clone` panics.
         let owned_value: Arc<dyn Any + Send + Sync + 'static> = Arc::new(value.clone());
-        let id = inner
-            .write()
-            .expect(INCONSISTENT_STATE)
-            .store_value(hash, owned_value);
+        let id = loop {
+            {
+                let mut inner = inner.write().expect(INCONSISTENT_STATE);
+                // Another thread may have stored an equal value since the
+                // lookup. Values are only ever appended, so an unchanged length
+                // means that storage did not change since the lookup. Calling
+                // `T::eq` again could panic and poison the write lock, so abort
+                // the write and retry from the beginning.
+                if inner.values.len() == read_len {
+                    break inner.store_value(hash, owned_value);
+                }
+            };
+            let inner = inner.read().expect(INCONSISTENT_STATE);
+            if let Some(id) = inner.storage_id(hash, value) {
+                return id;
+            }
+            read_len = inner.values.len();
+        };
         // User-defined handler implementations may panic, so emit the event
         // after the write lock is dropped.
         handler.event(Event::new(EventKind::StoreValue));
@@ -135,6 +149,9 @@ impl Transfer for DefaultTransfer<'_> {
             panic_expected_different_type::<T>()
         };
         let hash = hash_value::<T>(&self.hasher, value);
+        if let Some(id) = self.next.storage_id(hash, value) {
+            return id;
+        }
         self.next.store_value(hash, Arc::clone(shared))
     }
 
@@ -182,6 +199,10 @@ impl DefaultStorageInner {
         self.values
             .get(id.idx())
             .expect("bug: unknown storage ID (was this ID created by another database?)")
+    }
+
+    fn len(&self) -> usize {
+        self.values.len()
     }
 }
 

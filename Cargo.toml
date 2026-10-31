@@ -109,6 +109,7 @@ semicolon_if_nothing_returned = "allow"
 semicolon_inside_block = "allow"
 shadow_reuse = "allow"
 shadow_same = "allow"
+shadow_unrelated = "allow"
 single_call_fn = "allow"
 unneeded_field_pattern = "allow"
 

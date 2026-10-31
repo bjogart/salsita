@@ -410,6 +410,56 @@ fn inputs_can_be_set_after_garbage_collection() {
 }
 
 #[test]
+fn garbage_collection_deduplicates_equal_inputs() {
+    let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
+    // These inputs are deduplicated by the runtime, so these inputs point to
+    // the same value.
+    let price = db.new_input::<BurritoPrice>(&3);
+    let count = db.new_input::<BurritoCount>(&3);
+    // Garbage collection should recognize that both inputs point to the same
+    // value and assign them the same storage ID.
+    db.gc();
+    assert_eq!(*db.snapshot().query::<TotalPrice>(&(price, count)), 15);
+    // Set both inputs to the same value.
+    db.set_input(price, &3);
+    db.set_input(count, &3);
+    // Both inputs, if deduplicated, point to the same storage slot. Hence
+    // `eval_count == 0` and the result comes straight from the cache.
+    assert_query_delta::<TotalPrice>(
+        &db,
+        &(price, count),
+        &15,
+        Counts {
+            query_count: 1,
+            eval_count: 0,
+            registered_query_ops: 0,
+            stored_values: 0,
+            memo_count: 0,
+        },
+    );
+}
+
+#[test]
+fn default_storage_insertion_cannot_cannot_race() {
+    let storage = &DefaultStorage::default();
+    let (stalled_sender, stalled_receiver) = mpsc::channel();
+    let (resume_sender, resume_receiver) = mpsc::channel();
+    let (id, stalled_id) = thread::scope(|scope| {
+        let stalled = scope.spawn(move || {
+            STALL_CLONE.set(Some((stalled_sender, resume_receiver)));
+            storage.store(&(), &StallingClone(3))
+        });
+        // The other thread did not find the value in storage and is now cloning
+        // it before insertion. Store an equal value in the meantime.
+        stalled_receiver.recv().unwrap();
+        let id = storage.store(&(), &StallingClone(3));
+        resume_sender.send(()).unwrap();
+        (id, stalled.join().unwrap())
+    });
+    assert_eq!(id, stalled_id);
+}
+
+#[test]
 fn panicking_garbage_collection_leaves_db_unchanged() {
     let mut db: Db<DefaultStorage, PerfHandler> = Db::default();
     let price = db.new_input::<BurritoPrice>(&8);
@@ -1013,6 +1063,23 @@ impl Query for FlakyPriceWithVat {
         H: event::Handler,
     {
         *snapshot.query::<FlakyTotalPrice>(args) + 5
+    }
+}
+
+thread_local! {
+    static STALL_CLONE: Cell<Option<(mpsc::Sender<()>, mpsc::Receiver<()>)>> = const { Cell::new(None) };
+}
+
+#[derive(PartialEq, Eq, Hash, Debug)]
+struct StallingClone(usize);
+
+impl Clone for StallingClone {
+    fn clone(&self) -> Self {
+        if let Some((stalled, resume)) = STALL_CLONE.take() {
+            stalled.send(()).unwrap();
+            resume.recv().unwrap();
+        }
+        Self(self.0)
     }
 }
 
